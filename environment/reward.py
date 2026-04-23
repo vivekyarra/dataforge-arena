@@ -117,8 +117,15 @@ class RewardComputer:
         is_null = pd.isna(cell_val)
         is_correct = (not is_null) and (cell_val == gt_val)
         
+        # NaN-safe comparison: treat NaN != anything as an error
+        try:
+            mismatches = sum(1 for a, b in zip(row_data.values, gt_row.values)
+                            if pd.isna(a) or pd.isna(b) or str(a) != str(b))
+            error_rate_row = mismatches / max(len(row_data), 1)
+        except Exception:
+            error_rate_row = 0.0
+        
         null_rate_col = state.iloc[:, action.column].isna().mean()
-        error_rate_row = (row_data != gt_row).mean()
         
         tool_name = SURGEON_TOOLS[action.tool_id]["name"]
         

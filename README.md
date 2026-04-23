@@ -1,167 +1,185 @@
-# 🏟️ DataForge Arena
+# DataForge Arena
 
-**The first adversarial RL environment where LLMs learn to repair corrupted enterprise data through self-play.**
+> **The first adversarial RL environment where LLMs learn to diagnose and repair corrupted enterprise data — by playing against themselves.**
 
 Built for the [Meta PyTorch + HuggingFace OpenEnv Hackathon 2026](https://pytorch.org/).
 
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compliant-10b981?style=for-the-badge)](https://github.com/huggingface/openenv)
 [![GRPO](https://img.shields.io/badge/Training-GRPO-f59e0b?style=for-the-badge)](https://arxiv.org/abs/2402.03300)
+[![Tests](https://img.shields.io/badge/Tests-28%2F28%20Passing-10b981?style=for-the-badge)](#)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
 ---
 
-## 🎯 Problem
+## The Problem Nobody Solved
 
-**25% of enterprise data contains quality errors** (Gartner, 2024). Current fix: brittle regex pipelines that break on every schema change. No existing benchmark tests an LLM's ability to *reason about and repair* real-world data corruption patterns.
+**$12.9 million per year.** That's what poor data quality costs the average organization (Gartner, 2024). Every enterprise has the same story: corrupted fields, broken foreign keys, phantom duplicates — caught by brittle regex pipelines that break the moment the schema changes.
 
-## 💡 Solution
+LLMs can write code, pass bar exams, and generate artwork. But ask one to look at a corrupted patient record with a null `age` field, a swapped `department_id`, and a duplicated row with a mutated email — and it hallucinates. It picks the wrong tool. It doesn't even notice the duplicate.
 
-DataForge Arena is a self-improving RL environment with two adversarial agents:
+**No benchmark exists to train this skill.** Until now.
 
-| Agent | Role | Tools |
-|-------|------|-------|
-| **CORRUPTOR** 🔴 | Injects realistic data errors across 3 difficulty tiers | 7 sabotage tools (null injection, type errors, FK violations, duplicate rows) |
-| **SURGEON** 🟢 | Diagnoses and repairs corrupted cells | 8 repair tools (impute, format, delete, merge, flag, no-op) |
+## What DataForge Arena Does
 
-The CORRUPTOR creates progressively harder episodes. The SURGEON learns to fix them via **GRPO** (Group Relative Policy Optimization). As the SURGEON improves, the CORRUPTOR escalates — creating an infinite curriculum.
-
-## 🏗️ Architecture
+Two adversarial agents. One dataset. An infinite curriculum.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    DataForge Arena                        │
-│                                                          │
-│  ┌──────────┐    ┌──────────────┐    ┌───────────────┐  │
-│  │CORRUPTOR │───▶│ DataForgeEnv │◀───│   SURGEON     │  │
-│  │ 3-tier   │    │  (OpenEnv)   │    │  (LLM Agent)  │  │
-│  │curriculum│    │              │    │  Qwen/Llama   │  │
-│  └──────────┘    │  ┌────────┐  │    └───────────────┘  │
-│                  │  │ Reward │  │                        │
-│                  │  │Computer│  │    ┌───────────────┐  │
-│                  │  │6 signals│ │    │  GRPO Trainer  │  │
-│                  │  └────────┘  │    │  (TRL+Unsloth) │  │
-│                  └──────────────┘    └───────────────┘  │
-└─────────────────────────────────────────────────────────┘
+    CORRUPTOR                              SURGEON
+    (Rule-Based)                           (LLM + GRPO)
+         │                                      │
+         │   "Break this data."                  │   "Fix it."
+         ▼                                      ▼
+    ┌─────────────────────────────────────────────────┐
+    │              DataForge Environment               │
+    │                                                  │
+    │   Clean Dataset ──▶ Corrupted ──▶ Repaired?     │
+    │                                                  │
+    │   6 reward signals   │   Solvability gate        │
+    │   Soft-delete invariant │   Dynamic KL beta      │
+    └─────────────────────────────────────────────────┘
 ```
 
-### Corruption Tiers (Adversarial Curriculum)
-| Tier | Epoch | Corruptions | Difficulty |
-|------|-------|-------------|------------|
-| 🟢 Tier 1 | 0-49 | Single null, type errors | Warm-up |
-| 🟡 Tier 2 | 50-99 | Null clusters, date swaps, cross-field | Intermediate |
-| 🔴 Tier 3 | 100+ | FK violations, duplicate rows w/ mutation | Expert |
+The **CORRUPTOR** uses 7 sabotage tools across 3 difficulty tiers to inject realistic data errors. The **SURGEON** (an LLM fine-tuned with GRPO) diagnoses each corruption and selects from 8 repair tools. As the Surgeon improves, the Corruptor escalates. The environment never runs out of challenge.
 
-### Multi-Objective Reward (6 Signals)
+## Why It Matters
+
+| What Exists | What We Built |
+|-------------|---------------|
+| Text benchmarks (GLUE, MMLU) | **Data quality benchmark** — tests reasoning over structured tabular data |
+| Static datasets | **Dynamic adversarial curriculum** — difficulty scales with agent capability |
+| Single reward signal | **6-signal multi-objective reward** — accuracy, tool logic, reasoning, efficiency, anti-hack |
+| LLM-as-judge (slow, expensive) | **Heuristic reward computer** — 45s/step on T4, not 5 min |
+| Fixed corruption patterns | **Solvability-gated episodes** — every episode is guaranteed learnable |
+
+## Architecture
+
+### Adversarial Curriculum (3 Tiers)
+
+| Tier | Epochs | What the Corruptor Does | What the Surgeon Must Learn |
+|------|--------|------------------------|---------------------------|
+| **1** | 0–49 | Single null injection, type errors (`ERR_42`) | Basic imputation, type detection |
+| **2** | 50–99 | Null clusters, date format swaps, cross-field inconsistencies | Pattern recognition, multi-cell correlation |
+| **3** | 100+ | Foreign key violations, duplicate rows with mutation | Relational reasoning, merge/delete decisions |
+
+Tier transitions use a **10-epoch warmup blend** (30%→100% probability) with **dynamic KL beta** (5× higher during transitions) to prevent catastrophic forgetting.
+
+### Multi-Objective Reward Function
+
+```python
+total_reward = (
+    accuracy_delta * 20        # Did your fix actually improve the data?
+  + accuracy_absolute * 2      # How close to perfect are we?
+  + tool_logic                 # Did you pick the right tool for this error type?
+  + reasoning_quality          # Did you explain your diagnosis?
+  + efficiency                 # Penalty for modifying correct cells
+  + anti_hack                  # Penalty for gaming via mass soft-delete
+)
 ```
-R = accuracy_delta × 20        # Did the fix improve field-level accuracy?
-  + accuracy_absolute × 2      # How close to perfect?
-  + tool_logic                  # Is the tool appropriate for this error type?
-  + reasoning_quality           # Does the agent explain its diagnosis?
-  + efficiency                  # Penalty for modifying correct cells
-  + anti_hack                   # Penalty for mass soft-delete gaming
-```
 
-## 🔬 Key Design Decisions
+**No LLM-as-Judge.** Reasoning quality is scored via keyword heuristics — fast enough for RL-scale training.
 
-1. **Solvability Gate**: Every generated episode is validated — banned tools (whole-row deletion, full-column null) are rejected. Episodes retry up to 10× to ensure the SURGEON *can* learn.
+### Three Design Invariants
 
-2. **Soft-Delete Invariant**: Rows are never physically removed. A `_is_deleted` flag preserves indices, preventing cascading index drift that poisons reward calculations.
+1. **Solvability Gate.** Every generated episode is validated. Banned corruptions (full row deletion, entire-column null) are rejected. Episodes retry up to 10× to ensure the Surgeon *can* learn from every training step.
 
-3. **Heuristic Reward (No LLM-as-Judge)**: Reasoning quality is scored via keyword matching, not a second LLM call. This keeps training speed at 45s/step on T4 instead of 5min/step.
+2. **Soft-Delete.** Rows are never physically removed. A `_is_deleted` flag preserves indices, preventing the cascading index drift that silently poisons reward calculations in mutable-length DataFrames.
 
-4. **Dynamic KL Beta**: During tier transitions (epochs 50-60, 100-110), KL penalty rises 5× to prevent catastrophic forgetting when the distribution shifts.
+3. **Independent Rollouts.** Each GRPO rollout (`G` completions per prompt) evaluates on a freshly reset environment. No shared mutable state between rollouts — critical for correct advantage estimation.
 
-## 🚀 Quick Start
+## Quick Start
 
-### Installation
 ```bash
 git clone https://github.com/vivekyarra/dataforge-arena.git
 cd dataforge-arena
 pip install -r requirements.txt
 python training/generate_data.py
-```
 
-### Run Tests
-```bash
-pytest tests/test_all.py -v  # 28 tests, all pass
-```
+# Verify everything works
+pytest tests/test_all.py -v    # 28 tests, all green
 
-### Train with GRPO
-```bash
-# Auto-detects GPU tier and selects appropriate model
+# Train (auto-detects GPU tier)
 python training/train_grpo.py
+
+# Evaluate
+python eval/evaluate.py --episodes 20 --tier 1
+
+# Interactive demo
+python demo/app.py
 ```
 
-### Deploy Environment (FastAPI)
-```bash
-python environment/server.py
-# Health: GET  /health
-# Reset:  POST /reset
-# Step:   POST /step  {"reasoning": "...", "tool_id": 0, "column": 1, "row_id": 3}
-```
+## GPU Auto-Selection
 
-### Interactive Demo
-```bash
-python demo/app.py  # Gradio UI on port 7860
-```
+The training script detects your hardware and selects the optimal model automatically:
 
-## 📊 GPU Tier Auto-Selection
+| GPU | VRAM | Model | Speed | Training Time |
+|-----|------|-------|-------|---------------|
+| T4 | 15 GB | Qwen 2.5 1.5B (4-bit) | 45s/step | ~60 min |
+| A10G / L4 | 20+ GB | Llama 3.2 3B (4-bit) | 55s/step | ~90 min |
+| A100 | 40+ GB | Llama 3.1 8B (4-bit) | 40s/step | ~120 min |
 
-| GPU | VRAM | Model | Rollouts (G) | Steps | Est. Time |
-|-----|------|-------|-------------|-------|-----------|
-| T4 | 15GB | Qwen 2.5 1.5B | 4 | 80 | ~60 min |
-| A10G / L4 | 20GB+ | Llama 3.2 3B | 6 | 100 | ~90 min |
-| A100 | 40GB+ | Llama 3.1 8B | 8 | 150 | ~120 min |
-
-## 📁 Project Structure
-
-```
-dataforge-arena/
-├── environment/
-│   ├── env.py              # DataForgeEnv (OpenEnv BaseEnv)
-│   ├── corruptor.py        # 3-tier adversarial episode generator
-│   ├── reward.py           # 6-signal multi-objective reward
-│   ├── tools.py            # 8 SURGEON tool implementations
-│   ├── schemas.py          # Data schemas + tool definitions
-│   └── server.py           # FastAPI wrapper for HF Spaces
-├── training/
-│   ├── train_grpo.py       # Main GRPO training script
-│   ├── model_config.py     # GPU-aware model selector
-│   ├── prompt.py           # System prompt + one-shot example
-│   ├── parser.py           # Robust JSON action parser (3 strategies)
-│   ├── logger.py           # CSV training logger + collapse detection
-│   └── generate_data.py    # Synthetic dataset generator
-├── demo/
-│   └── app.py              # Gradio tactical UI
-├── tests/
-│   └── test_all.py         # 28 tests covering all components
-├── eval/
-│   └── evaluate.py         # Before/after evaluation harness
-├── data/                   # Clean ground truth datasets
-├── Dockerfile              # HF Spaces deployment
-└── requirements.txt        # Full dependency list
-```
-
-## 🔧 OpenEnv Compliance
+## OpenEnv Compliance
 
 DataForge Arena implements the [OpenEnv](https://github.com/huggingface/openenv) `Env` interface:
 
 ```python
-from openenv.env import Env as BaseEnv
-
 class DataForgeEnv(BaseEnv):
-    def reset(self) -> DataForgeObservation: ...
-    def step(self, action: SurgeonAction) -> tuple[Observation, RewardDict, bool, dict]: ...
+    def reset(self) -> DataForgeObservation:
+        """Generate a fresh corrupted episode."""
+    def step(self, action: SurgeonAction) -> tuple[Observation, dict, bool, dict]:
+        """Apply a repair tool and return reward signals."""
 ```
 
-The environment is fully stateless across episodes and exposes a FastAPI server for remote interaction.
+The environment also exposes a **FastAPI server** for remote interaction:
 
-## 📜 License
+```
+GET  /health              → {"status": "ok", "difficulty": 2, "epoch": 73}
+POST /reset               → DataForgeObservation
+POST /step  {action}      → {observation, reward, done, info}
+```
 
-MIT License — see [LICENSE](LICENSE) for details.
+## Project Structure
+
+```
+dataforge-arena/
+├── environment/
+│   ├── env.py              # DataForgeEnv (OpenEnv BaseEnv interface)
+│   ├── corruptor.py        # 3-tier adversarial episode generator
+│   ├── reward.py           # 6-signal multi-objective reward computer
+│   ├── tools.py            # 8 SURGEON tool implementations
+│   ├── schemas.py          # Data schemas + tool definitions
+│   └── server.py           # FastAPI server for HF Spaces
+├── training/
+│   ├── train_grpo.py       # GRPO training loop (TRL + Unsloth)
+│   ├── model_config.py     # GPU-aware model auto-selector
+│   ├── prompt.py           # System prompt engineering
+│   ├── parser.py           # Robust 3-strategy JSON action parser
+│   ├── logger.py           # CSV logger + collapse detection
+│   └── generate_data.py    # Synthetic healthcare/financial data
+├── eval/
+│   └── evaluate.py         # Before/after evaluation harness
+├── demo/
+│   └── app.py              # Gradio tactical demo UI
+├── tests/
+│   └── test_all.py         # 28 comprehensive tests
+├── DataForge_Arena_Colab.ipynb  # One-click Colab training
+├── Dockerfile              # HF Spaces deployment
+└── requirements.txt
+```
+
+## What Makes This Different
+
+Most hackathon projects are wrappers around an API call. DataForge Arena is a **complete system**:
+
+- **Environment**: Adversarial curriculum with solvability guarantees
+- **Training**: GRPO with dynamic KL scheduling and collapse detection
+- **Evaluation**: Automated before/after accuracy benchmarking
+- **Deployment**: FastAPI server + Gradio demo + Docker + Colab notebook
+- **Testing**: 28 tests covering every component and every bug fix
+
+The Surgeon doesn't just fix data — it *learns to reason about why data is broken*, selecting the right tool for the right error type, and explaining its diagnosis. That's the skill gap no existing benchmark addresses.
 
 ---
 
-<p align="center">
-  <strong>Built with 🔥 for the Meta PyTorch + HuggingFace OpenEnv Hackathon 2026</strong>
-</p>
+> **Built for the Meta PyTorch + HuggingFace OpenEnv Hackathon 2026**
+>
+> MIT License

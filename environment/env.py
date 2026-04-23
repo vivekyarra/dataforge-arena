@@ -134,7 +134,9 @@ class DataForgeEnv(BaseEnv):
             return False
         if action.row_id >= len(self._state):
             return False
-        if action.column >= len(self._state.columns):
+        # Exclude _is_deleted from valid column targets
+        data_cols = [c for c in self._state.columns if c != "_is_deleted"]
+        if action.column >= len(data_cols):
             return False
         return True
 

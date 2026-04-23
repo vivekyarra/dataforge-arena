@@ -156,8 +156,19 @@ def simulate_agent(agent_type):
                     tool_id = 1  # IMPUTE_MODE for categorical
                     reasoning = f"Missing value in '{col_name}'. Using IMPUTE_MODE since this is a categorical field."
             else:
-                tool_id = 3  # CORRECT_FORMAT
-                reasoning = f"Value '{cell_val}' appears malformed. Applying CORRECT_FORMAT to fix type error."
+                # Type error (ERR_XX) or format error
+                cell_str = str(cell_val)
+                col_name = display_cols[target_col]
+                if cell_str.startswith("ERR_") or cell_str.startswith("INVALID"):
+                    if any(t in col_name.lower() for t in ["id", "age", "year", "amount"]):
+                        tool_id = 0  # IMPUTE_MEDIAN
+                        reasoning = f"Type error '{cell_val}' in numeric '{col_name}'. Using IMPUTE_MEDIAN to replace with column median."
+                    else:
+                        tool_id = 1  # IMPUTE_MODE
+                        reasoning = f"Type error '{cell_val}' in '{col_name}'. Using IMPUTE_MODE to replace with most common value."
+                else:
+                    tool_id = 3  # CORRECT_FORMAT for genuine format issues
+                    reasoning = f"Format error in '{col_name}': value '{cell_val}' needs reformatting."
         
         action = SurgeonAction(reasoning=reasoning, tool_id=tool_id, column=target_col, row_id=target_row)
         

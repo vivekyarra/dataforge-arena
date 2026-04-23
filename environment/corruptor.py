@@ -7,9 +7,13 @@ from environment.schemas import CORRUPTOR_TOOLS, DEPT_MAP
 
 class Corruptor:
     def __init__(self):
-        self.difficulty = 1
         self._epoch = 0
         self._recent_rewards = deque(maxlen=20)
+
+    @property
+    def difficulty(self) -> int:
+        """Dynamic difficulty = current tier. Always in sync."""
+        return self.current_tier()
 
     def record_episode(self, surgeon_reward: float):
         self._recent_rewards.append(surgeon_reward)
