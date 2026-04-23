@@ -24,6 +24,12 @@ FINANCIAL_SCHEMA = {
     "status":         {"type": "str",    "nullable": False, "values": ["completed","pending","failed"]},
 }
 
+DEPT_MAP = {
+    1: "Cardiology", 2: "Neurology", 3: "Oncology",
+    4: "Pediatrics", 5: "Orthopedics", 6: "Radiology",
+    7: "Emergency",  8: "Surgery",    9: "Psychiatry", 10: "General",
+}
+
 # SURGEON tools — discrete integers 0-7 only
 SURGEON_TOOLS = {
     0: {"name": "IMPUTE_MEDIAN",       "applies_to": ["int", "float"]},
