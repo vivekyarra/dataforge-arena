@@ -9,7 +9,7 @@ class RewardComputer:
     def compute(self, state: pd.DataFrame, ground_truth: pd.DataFrame,
                 action, original_dirty: pd.DataFrame,
                 prev_accuracy: float, episode_start: float,
-                step_count: int) -> dict:
+                step_count: int, starting_accuracy: float = None) -> dict:
         
         rewards = {}
         
@@ -49,8 +49,11 @@ class RewardComputer:
         )
         rewards["total"] = total
         
-        # Episode complete signal
-        rewards["episode_complete"] = current_acc > 0.90
+        # BUG 1 FIX: Episode complete based on near-perfect accuracy OR
+        # improvement delta from starting accuracy exceeds 0.05
+        start_acc = starting_accuracy if starting_accuracy is not None else prev_accuracy
+        improvement = current_acc - start_acc
+        rewards["episode_complete"] = (current_acc >= 0.999) or (improvement > 0.05)
         
         return rewards
 
@@ -59,15 +62,28 @@ class RewardComputer:
         """
         Soft-delete aware accuracy.
         '_is_deleted' rows are counted as wrong on all fields.
+        Handles shape mismatch from duplicate_row_mutate by trimming.
         """
         # Remove internal bookkeeping columns
         state_vals = state.drop(columns=["_is_deleted"], errors="ignore")
-        gt_vals = ground_truth.iloc[:len(state_vals)].copy()
+        gt_vals = ground_truth.copy()
         
-        if state_vals.shape != gt_vals.shape:
-            # Shape mismatch -- length penalty
-            ratio = len(state_vals) / len(gt_vals)
-            return max(0.0, 0.5 * ratio)
+        # BUG 7 FIX: Handle shape mismatch from duplicate_row_mutate
+        # Trim both to common length so extra rows don't poison accuracy to 51%
+        min_rows = min(len(state_vals), len(gt_vals))
+        state_vals = state_vals.iloc[:min_rows]
+        gt_vals = gt_vals.iloc[:min_rows]
+        
+        if state_vals.shape[1] != gt_vals.shape[1]:
+            # Column count mismatch -- something very wrong
+            return 0.0
+        
+        # Penalize extra rows in state (duplicates the agent hasn't merged/deleted)
+        extra_rows = len(state) - len(ground_truth)
+        extra_penalty = 0.0
+        if extra_rows > 0:
+            total_cells_gt = len(ground_truth) * len(ground_truth.columns)
+            extra_penalty = (extra_rows * len(ground_truth.columns)) / max(total_cells_gt, 1)
         
         # Element-wise comparison (handles NaN: NaN != anything = wrong)
         try:
@@ -76,16 +92,24 @@ class RewardComputer:
             gt_null_mask = pd.isna(gt_vals.values)
             null_matches = null_mask & gt_null_mask
             total_matches = matches | null_matches
-            return float(total_matches.sum()) / total_matches.size
+            base_acc = float(total_matches.sum()) / total_matches.size
+            return max(0.0, base_acc - extra_penalty)
         except Exception:
             return 0.0
 
     def _score_tool_logic(self, action, state, ground_truth) -> float:
         try:
             row_data = state.iloc[action.row_id].drop(["_is_deleted"], errors="ignore")
-            gt_row = ground_truth.iloc[action.row_id]
+            gt_row = ground_truth.iloc[action.row_id] if action.row_id < len(ground_truth) else None
         except IndexError:
             return -1.0
+        
+        if gt_row is None:
+            # Row exists in state but not in ground_truth (duplicate)
+            tool_name = SURGEON_TOOLS[action.tool_id]["name"]
+            if tool_name in ("DELETE_ROW", "MERGE_DUPLICATE"):
+                return +1.5  # correct to delete/merge a duplicate row
+            return -0.5
         
         cell_val = row_data.iloc[action.column]
         gt_val = gt_row.iloc[action.column]
@@ -157,6 +181,8 @@ class RewardComputer:
         Wrong action = -1. Right action direction = 0 (outcome handles it).
         """
         try:
+            if action.row_id >= len(ground_truth):
+                return 0.0  # extra row from duplicate -- no penalty for acting on it
             cell_val = state.iloc[action.row_id, action.column]
             gt_val = ground_truth.iloc[action.row_id, action.column]
             is_correct = (cell_val == gt_val) and pd.notna(cell_val)

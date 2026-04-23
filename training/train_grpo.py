@@ -2,8 +2,13 @@
 DataForge Arena -- GRPO Training Script
 Run on campus with HF compute credits.
 """
-import os, sys, json, torch, pandas as pd
+import os, sys, json, warnings
+import torch, pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Silence noisy deprecation warnings from transformers/pydantic
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic")
 
 from unsloth import FastLanguageModel
 from trl import GRPOTrainer, GRPOConfig
@@ -67,11 +72,17 @@ parse_successes = [0]
 total_rollouts = [0]
 
 def reward_fn(completions: list, prompts: list, **kwargs) -> list:
+    """
+    BUG 2 FIX: Each completion gets its own env.reset() so all G rollouts
+    are evaluated independently on fresh state. Previously completion #2
+    saw the state after completion #1 already modified it.
+    """
     rewards = []
-    obs = env.reset()
     
     for completion in completions:
         total_rollouts[0] += 1
+        # CRITICAL: independent reset per completion
+        obs = env.reset()
         try:
             action = robust_parse_action(completion)
             parse_successes[0] += 1

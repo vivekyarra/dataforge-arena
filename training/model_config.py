@@ -3,11 +3,16 @@ Auto-detects available GPU and selects the appropriate model.
 Run this FIRST on campus before anything else.
 """
 import subprocess
-import torch
 
 
 def detect_gpu() -> dict:
     """Returns GPU info needed for model selection."""
+    # BUG 3 FIX: Lazy-import torch so pytest doesn't crash at collection
+    try:
+        import torch
+    except ImportError:
+        return {"type": "none", "vram_gb": 0}
+    
     if not torch.cuda.is_available():
         return {"type": "none", "vram_gb": 0}
     

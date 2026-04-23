@@ -3,16 +3,33 @@ import json
 from environment.env import SurgeonAction
 
 
+def _clamp_action(reasoning: str, tool_id: int, column: int, row_id: int) -> SurgeonAction:
+    """Construct a SurgeonAction with clamped values. BUG 4 FIX."""
+    return SurgeonAction(
+        reasoning=reasoning,
+        tool_id=min(max(int(tool_id), 0), 7),
+        column=max(int(column), 0),
+        row_id=max(int(row_id), 0),
+    )
+
+
 def robust_parse_action(completion: str) -> SurgeonAction:
     """
     Never crash on malformed model output.
     Try 3 strategies before giving up.
+    All strategies clamp tool_id to 0-7.
     """
     text = completion.strip()
     
     # Strategy 1: direct JSON parse
     try:
-        return SurgeonAction(**json.loads(text))
+        d = json.loads(text)
+        return _clamp_action(
+            str(d.get("reasoning", "")),
+            d.get("tool_id", 7),
+            d.get("column", 0),
+            d.get("row_id", 0),
+        )
     except Exception:
         pass
     
@@ -26,7 +43,13 @@ def robust_parse_action(completion: str) -> SurgeonAction:
         candidate = re.sub(r'(\w+):', r'"\1":', candidate)  # unquoted keys
         candidate = re.sub(r'"{2,}', '"', candidate)    # double-double quotes
         try:
-            return SurgeonAction(**json.loads(candidate))
+            d = json.loads(candidate)
+            return _clamp_action(
+                str(d.get("reasoning", "")),
+                d.get("tool_id", 7),
+                d.get("column", 0),
+                d.get("row_id", 0),
+            )
         except Exception:
             pass
     
@@ -38,11 +61,11 @@ def robust_parse_action(completion: str) -> SurgeonAction:
         row_m       = re.search(r'"row_id"\s*:\s*(\d+)', text)
         
         if all([reasoning_m, tool_m, col_m, row_m]):
-            return SurgeonAction(
-                reasoning=reasoning_m.group(1),
-                tool_id=min(int(tool_m.group(1)), 7),
-                column=int(col_m.group(1)),
-                row_id=int(row_m.group(1)),
+            return _clamp_action(
+                reasoning_m.group(1),
+                int(tool_m.group(1)),
+                int(col_m.group(1)),
+                int(row_m.group(1)),
             )
     except Exception:
         pass

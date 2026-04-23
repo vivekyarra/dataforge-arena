@@ -19,7 +19,8 @@ def apply_tool(state: pd.DataFrame, action,
     
     col_name = state.columns[col]
     
-    if state[col_name].dtype != object:
+    # Upcast column to object to prevent pandas dtype warnings
+    if col_name != "_is_deleted" and state[col_name].dtype != object:
         state[col_name] = state[col_name].astype(object)
     
     if tool_name == "IMPUTE_MEDIAN":
@@ -95,21 +96,24 @@ def _correct_format(val, col_name: str, schema: dict):
 
 def _merge_duplicate(state: pd.DataFrame, row: int, col: int):
     """Find nearest near-duplicate row and merge, preferring non-null values."""
-    target_row = state.iloc[row]
+    # BUG 8 FIX: Exclude _is_deleted from overlap comparison
+    compare_cols = [c for c in state.columns if c != "_is_deleted"]
+    target_row = state.iloc[row][compare_cols]
     best_match_idx = None
     best_overlap = 0
     
     for i, other_row in state.iterrows():
         if i == state.index[row]:
             continue
-        overlap = (target_row == other_row).sum()
+        other_vals = other_row[compare_cols]
+        overlap = (target_row == other_vals).sum()
         if overlap > best_overlap:
             best_overlap = overlap
             best_match_idx = i
     
-    if best_match_idx is not None and best_overlap > len(state.columns) * 0.7:
+    if best_match_idx is not None and best_overlap > len(compare_cols) * 0.7:
         # Merge: fill nulls in target from match
-        for c in state.columns:
+        for c in compare_cols:
             if pd.isna(state.at[state.index[row], c]):
                 state.at[state.index[row], c] = state.at[best_match_idx, c]
         # Soft-delete the duplicate

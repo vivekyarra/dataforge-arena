@@ -43,7 +43,7 @@ Schema: {obs.schema_str}
 Step: {obs.step_count}/{obs.max_steps}
 CORRUPTOR difficulty: {obs.difficulty}/3
 
-Most corrupted rows (showing up to 10):
+Most corrupted rows (showing up to 5):
 {obs.rows_json}
 
 Recent actions: {obs.action_history}

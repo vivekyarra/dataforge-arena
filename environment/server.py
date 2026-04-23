@@ -34,7 +34,7 @@ async def health():
 @app.post("/reset")
 async def reset():
     obs = env.reset()
-    return obs.dict()
+    return obs.model_dump()
 
 @app.post("/step")
 async def step(action: SurgeonAction):
@@ -42,7 +42,7 @@ async def step(action: SurgeonAction):
         raise HTTPException(400, "Call /reset first")
     obs, reward_dict, done, info = env.step(action)
     return {
-        "observation": obs.dict(),
+        "observation": obs.model_dump(),
         "reward": reward_dict,
         "done": done,
         "info": info,

@@ -20,7 +20,7 @@ class SurgeonAction(BaseModel):
 
 
 class DataForgeObservation(BaseModel):
-    rows_json: str          # top 10 most corrupted rows as JSON string
+    rows_json: str          # top 5 most corrupted rows as JSON string
     schema_str: str         # schema summary
     step_count: int
     max_steps: int
@@ -47,6 +47,7 @@ class DataForgeEnv(BaseEnv):
         self._ground_truth: pd.DataFrame = None
         self._original_dirty: pd.DataFrame = None
         self._prev_accuracy: float = 0.0
+        self._starting_accuracy: float = 0.0
         self._episode_start: float = None
         self._step_count: int = 0
         self._action_log: list = []
@@ -58,12 +59,22 @@ class DataForgeEnv(BaseEnv):
         sample = self._clean_data.sample(n=n_samples, random_state=None).reset_index(drop=True)
         dirty, ground_truth, metadata = self._corruptor.generate_episode(sample)
         
+        # BUG 7 FIX: If duplicate_row_mutate added rows, extend ground_truth
+        # to match dirty's length so _field_accuracy doesn't get a shape mismatch
+        if metadata.get("tool") == "duplicate_row_mutate" and len(dirty) > len(ground_truth):
+            # The extra row is a duplicate -- append the original row to ground_truth
+            src_row = metadata.get("row", 0)
+            if src_row < len(ground_truth):
+                extra = ground_truth.iloc[[src_row]].copy()
+                ground_truth = pd.concat([ground_truth, extra], ignore_index=True)
+        
         self._state = dirty.copy()
         self._ground_truth = ground_truth.copy()
         self._original_dirty = dirty.copy()
         self._prev_accuracy = self._reward_computer._field_accuracy(
             self._state, self._ground_truth
         )
+        self._starting_accuracy = self._prev_accuracy
         self._episode_start = time.time()
         self._step_count = 0
         self._action_log = []
@@ -79,7 +90,7 @@ class DataForgeEnv(BaseEnv):
                     False, {})
         
         self._step_count += 1
-        self._action_log.append(action.dict())
+        self._action_log.append(action.model_dump())
         
         # Apply tool
         self._state = apply_tool(self._state, action, self._schema)
@@ -93,6 +104,7 @@ class DataForgeEnv(BaseEnv):
             prev_accuracy=self._prev_accuracy,
             episode_start=self._episode_start,
             step_count=self._step_count,
+            starting_accuracy=self._starting_accuracy,
         )
         
         # Update prev accuracy for next step's delta
@@ -129,9 +141,10 @@ class DataForgeEnv(BaseEnv):
     def _make_observation(self) -> DataForgeObservation:
         state_clean = self._state.drop(columns=["_is_deleted"], errors="ignore")
         
-        # Find top 10 most corrupted rows
+        # BUG 5 FIX: Show top 5 most corrupted rows instead of 10
+        # This cuts prompt length by ~35%
         null_counts = state_clean.isnull().sum(axis=1)
-        top_idx = null_counts.nlargest(10).index.tolist()
+        top_idx = null_counts.nlargest(5).index.tolist()
         top_rows = state_clean.iloc[top_idx]
         
         # Safe serialization: NaN -> None
@@ -153,5 +166,5 @@ class DataForgeEnv(BaseEnv):
             total_rows=len(state_clean),
             total_errors=total_nulls,
             error_rate_pct=round(100 * total_nulls / max(total_cells, 1), 1),
-            action_history=self._action_log[-3:],  # last 3 actions only
+            action_history=self._action_log[-2:],  # BUG 5 FIX: last 2 actions only
         )
