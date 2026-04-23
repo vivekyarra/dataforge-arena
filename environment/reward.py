@@ -82,7 +82,7 @@ class RewardComputer:
 
     def _score_tool_logic(self, action, state, ground_truth) -> float:
         try:
-            row_data = state.iloc[action.row_id]
+            row_data = state.iloc[action.row_id].drop(["_is_deleted"], errors="ignore")
             gt_row = ground_truth.iloc[action.row_id]
         except IndexError:
             return -1.0

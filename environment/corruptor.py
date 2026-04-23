@@ -77,6 +77,7 @@ class Corruptor:
         if tool == "inject_null_single":
             df.at[row, col] = np.nan
         elif tool == "inject_type_error":
+            df[col] = df[col].astype(object)
             df.at[row, col] = f"ERR_{random.randint(10, 99)}"
 
         return df, {"tool": tool, "col": col, "row": row,

@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from pydantic import BaseModel
 from typing import Optional
-from openenv import BaseEnv
+from openenv.env import Env as BaseEnv
 
 from environment.schemas import SURGEON_TOOLS
 from environment.reward import RewardComputer
@@ -54,7 +54,8 @@ class DataForgeEnv(BaseEnv):
 
     def reset(self) -> DataForgeObservation:
         # Sample 50 rows for each episode (keeps prompts short)
-        sample = self._clean_data.sample(n=50, random_state=None).reset_index(drop=True)
+        n_samples = min(50, len(self._clean_data))
+        sample = self._clean_data.sample(n=n_samples, random_state=None).reset_index(drop=True)
         dirty, ground_truth, metadata = self._corruptor.generate_episode(sample)
         
         self._state = dirty.copy()

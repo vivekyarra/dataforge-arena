@@ -47,7 +47,7 @@ def select_model(gpu_info: dict) -> dict:
             "label": "Llama 3.1 8B (full power)",
         }
     
-    elif vram >= 14:  # A10G or L40S
+    elif vram >= 20:  # A10G or L40S
         return {
             "model_name": "unsloth/Llama-3.2-3B-Instruct-bnb-4bit",
             "max_seq_length": 2048,
