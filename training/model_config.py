@@ -61,7 +61,7 @@ def select_model(gpu_info: dict) -> dict:
     else:  # T4 (16GB but slow) or L4
         return {
             "model_name": "unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit",
-            "max_seq_length": 1024,
+            "max_seq_length": 2048,
             "num_generations": 4,
             "batch_size": 1,
             "grad_accum": 2,
