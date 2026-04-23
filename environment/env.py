@@ -1,0 +1,156 @@
+import time
+import json
+import pandas as pd
+import numpy as np
+from pydantic import BaseModel
+from typing import Optional
+from openenv import BaseEnv
+
+from environment.schemas import SURGEON_TOOLS
+from environment.reward import RewardComputer
+from environment.tools import apply_tool
+from environment.corruptor import Corruptor
+
+
+class SurgeonAction(BaseModel):
+    reasoning: str
+    tool_id: int
+    column: int
+    row_id: int
+
+
+class DataForgeObservation(BaseModel):
+    rows_json: str          # top 10 most corrupted rows as JSON string
+    schema_str: str         # schema summary
+    step_count: int
+    max_steps: int
+    difficulty: int
+    total_rows: int
+    total_errors: int
+    error_rate_pct: float
+    action_history: list
+
+
+class DataForgeEnv(BaseEnv):
+    MAX_STEPS = 20
+    MAX_SECONDS = 30
+
+    def __init__(self, corruptor: Corruptor, schema: dict,
+                 clean_data: pd.DataFrame):
+        self._corruptor = corruptor
+        self._schema = schema
+        self._clean_data = clean_data
+        self._reward_computer = RewardComputer()
+        
+        # Episode state
+        self._state: pd.DataFrame = None
+        self._ground_truth: pd.DataFrame = None
+        self._original_dirty: pd.DataFrame = None
+        self._prev_accuracy: float = 0.0
+        self._episode_start: float = None
+        self._step_count: int = 0
+        self._action_log: list = []
+        self._episode_rewards: list = []
+
+    def reset(self) -> DataForgeObservation:
+        # Sample 50 rows for each episode (keeps prompts short)
+        sample = self._clean_data.sample(n=50, random_state=None).reset_index(drop=True)
+        dirty, ground_truth, metadata = self._corruptor.generate_episode(sample)
+        
+        self._state = dirty.copy()
+        self._ground_truth = ground_truth.copy()
+        self._original_dirty = dirty.copy()
+        self._prev_accuracy = self._reward_computer._field_accuracy(
+            self._state, self._ground_truth
+        )
+        self._episode_start = time.time()
+        self._step_count = 0
+        self._action_log = []
+        self._episode_rewards = []
+        
+        return self._make_observation()
+
+    def step(self, action: SurgeonAction) -> tuple:
+        # Validate
+        if not self._is_valid(action):
+            return (self._make_observation(),
+                    {"total": -0.5, "invalid_action": True},
+                    False, {})
+        
+        self._step_count += 1
+        self._action_log.append(action.dict())
+        
+        # Apply tool
+        self._state = apply_tool(self._state, action, self._schema)
+        
+        # Compute rewards
+        reward_dict = self._reward_computer.compute(
+            state=self._state,
+            ground_truth=self._ground_truth,
+            action=action,
+            original_dirty=self._original_dirty,
+            prev_accuracy=self._prev_accuracy,
+            episode_start=self._episode_start,
+            step_count=self._step_count,
+        )
+        
+        # Update prev accuracy for next step's delta
+        if "_current_accuracy" in reward_dict:
+            self._prev_accuracy = reward_dict.pop("_current_accuracy")
+        
+        self._episode_rewards.append(reward_dict["total"])
+        
+        done = (
+            self._step_count >= self.MAX_STEPS or
+            reward_dict.get("episode_complete", False) or
+            reward_dict.get("timeout", False)
+        )
+        
+        if done:
+            self._corruptor.record_episode(sum(self._episode_rewards))
+        
+        return self._make_observation(), reward_dict, done, {
+            "action_log": self._action_log,
+            "step": self._step_count,
+        }
+
+    def _is_valid(self, action: SurgeonAction) -> bool:
+        if action.tool_id not in range(8):
+            return False
+        if self._state is None:
+            return False
+        if action.row_id >= len(self._state):
+            return False
+        if action.column >= len(self._state.columns):
+            return False
+        return True
+
+    def _make_observation(self) -> DataForgeObservation:
+        state_clean = self._state.drop(columns=["_is_deleted"], errors="ignore")
+        
+        # Find top 10 most corrupted rows
+        null_counts = state_clean.isnull().sum(axis=1)
+        top_idx = null_counts.nlargest(10).index.tolist()
+        top_rows = state_clean.iloc[top_idx]
+        
+        # Safe serialization: NaN -> None
+        rows_safe = top_rows.where(pd.notna(top_rows), None).to_dict("records")
+        
+        total_nulls = int(state_clean.isnull().sum().sum())
+        total_cells = state_clean.size
+        
+        schema_str = ", ".join([
+            f"{k}:{v['type']}" for k, v in self._schema.items()
+        ])
+        
+        return DataForgeObservation(
+            rows_json=json.dumps(rows_safe),
+            schema_str=schema_str,
+            step_count=self._step_count,
+            max_steps=self.MAX_STEPS,
+            difficulty=self._corruptor.difficulty,
+            total_rows=len(state_clean),
+            total_errors=total_nulls,
+            error_rate_pct=round(100 * total_nulls / max(total_cells, 1), 1),
+            action_history=self._action_log[-3:],  # last 3 actions only
+        )

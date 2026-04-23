@@ -1,0 +1,17 @@
+openenv>=0.1.0
+fastapi>=0.110.0
+uvicorn>=0.29.0
+pydantic>=2.0.0
+pandas>=2.2.0
+numpy>=1.26.0
+faker>=24.0.0
+torch>=2.2.0
+unsloth>=2024.4
+trl>=0.8.6
+transformers>=4.40.0
+datasets>=2.19.0
+accelerate>=0.29.0
+bitsandbytes>=0.43.0
+gradio>=4.26.0
+requests>=2.31.0
+pytest>=8.0.0
