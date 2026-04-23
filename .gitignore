@@ -1,6 +1,34 @@
+# Models (large binary files)
 models/
+outputs/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Model weights
 *.safetensors
 *.bin
 *.pt
+*.gguf
+
+# Training artifacts
+logs/
+*.csv.bak
+wandb/
+
+# System
+.DS_Store
+Thumbs.db
+.pytest_cache/
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

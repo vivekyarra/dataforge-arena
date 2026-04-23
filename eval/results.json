@@ -1,0 +1,7 @@
+{
+  "tier": 1,
+  "episodes": 10,
+  "surgeon_avg_delta": -0.0014,
+  "random_avg_delta": -0.0046,
+  "advantage": 0.0032
+}
