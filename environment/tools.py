@@ -19,6 +19,9 @@ def apply_tool(state: pd.DataFrame, action,
     
     col_name = state.columns[col]
     
+    if state[col_name].dtype != object:
+        state[col_name] = state[col_name].astype(object)
+    
     if tool_name == "IMPUTE_MEDIAN":
         col_data = state.iloc[:, col]
         numeric = pd.to_numeric(col_data, errors="coerce")

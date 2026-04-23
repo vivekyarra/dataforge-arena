@@ -82,7 +82,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         _, reward_dict, done, info = env.step(action)
         
         # Log action for collapse detection
-        recent_actions.append(action.dict())
+        recent_actions.append(action.model_dump())
         if len(recent_actions) > 100:
             recent_actions.pop(0)
         
