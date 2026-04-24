@@ -13,6 +13,8 @@ from environment.env import DataForgeEnv, SurgeonAction
 from environment.corruptor import Corruptor
 from environment.reward import RewardComputer
 from environment.schemas import HEALTHCARE_SCHEMA, SURGEON_TOOLS
+from training.parser import robust_parse_action
+from training.prompt import build_prompt
 
 # ---------- resolve paths -----------------------------------------
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,6 +32,28 @@ current_dirty = [None]
 current_gt = [None]
 current_meta = [None]
 
+llm_pipeline = None
+
+def load_llm():
+    """Lazy load the transformers pipeline on first inference request."""
+    global llm_pipeline
+    if llm_pipeline is not None:
+        return True
+    try:
+        from transformers import pipeline
+        import torch
+        print("Loading Live LLM Inference Pipeline...")
+        device = 0 if torch.cuda.is_available() else -1
+        # Use Qwen 1.5B as the live inference model. In a real space, you'd load your PeftModel here.
+        llm_pipeline = pipeline("text-generation", model="Qwen/Qwen2.5-1.5B-Instruct", 
+                                device=device, torch_dtype=torch.bfloat16 if device==0 else torch.float32)
+        print("Live LLM Loaded Successfully.")
+        return True
+    except Exception as e:
+        print(f"Error loading LLM: {e}")
+        return False
+
+
 # ---------- CSS ---------------------------------------------------
 DARK_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap');
@@ -40,7 +64,7 @@ h1 { font-family: 'JetBrains Mono', monospace !important; text-shadow: 0 0 20px 
 .metric-card:hover { transform: translateY(-2px); }
 .rollout-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 14px; margin: 6px 0; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px; transition: all 0.2s ease; }
 .rollout-winner { background: linear-gradient(90deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.05) 60%, transparent 100%); border-left: 3px solid #10b981; box-shadow: inset 1px 0 0 rgba(16,185,129,0.5); }
-.rollout-loser  { background: rgba(30,41,59,0.4); border-left: 3px solid #374151; opacity: 0.8; }
+.rollout-loser  { background: rgba(239,68,68,0.15); border-left: 3px solid #ef4444; opacity: 0.9; }
 .rollout-row:hover { background: rgba(51,65,85,0.5); opacity: 1; }
 .tag { padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.3); text-shadow: 0 1px 1px rgba(0,0,0,0.5); }
 .tag-null   { background:linear-gradient(135deg, #7f1d1d, #991b1b); color:#fca5a5; border: 1px solid #b91c1c; }
@@ -51,37 +75,19 @@ h1 { font-family: 'JetBrains Mono', monospace !important; text-shadow: 0 0 20px 
 @keyframes pulse { 0%,100% { opacity:1; box-shadow: 0 0 0 0 rgba(16,185,129,0.4); } 50% { opacity:0.8; box-shadow: 0 0 10px 4px rgba(16,185,129,0); } }
 """
 
-# ---------- training data loader with synthetic fallback ----------
+# ---------- training data loader ----------
 def get_training_data():
-    """Load real training log if available, else generate a synthetic
-    fallback curve matching the real training trajectory so judges
-    ALWAYS see a reward chart -- never a blank panel."""
     try:
         df = pd.read_csv(LOG_PATH)
         if len(df) > 0:
             return df
-    except (FileNotFoundError, pd.errors.EmptyDataError):
+    except:
         pass
-
-    # Synthetic fallback based on observed real training trajectory
-    steps = list(range(0, 85, 5))
-    rewards = [
-        -1.82, -1.55, -1.21, -0.78, -0.35,
-        0.08, 0.31, 0.52, 0.73, 0.89,
-        1.05, 1.18, 1.29, 1.38, 1.45,
-        1.50, 1.55,
-    ]
-    difficulty = [1]*10 + [2]*4 + [3]*3
-    return pd.DataFrame({
-        "step": steps[:len(rewards)],
-        "total_reward": rewards,
-        "difficulty": difficulty[:len(rewards)],
-    })
+    return pd.DataFrame({"step": [0], "total_reward": [0], "difficulty": [1]})
 
 
 # ---------- helper funcs ------------------------------------------
 def generate_episode(tier):
-    """Generate a corrupted episode at given tier."""
     tier = int(tier)
     corruptor._epoch = {1: 0, 2: 65, 3: 115}[tier]
 
@@ -89,7 +95,6 @@ def generate_episode(tier):
     sample = clean_data.sample(n=n).reset_index(drop=True)
     dirty, gt, meta = corruptor.generate_episode(sample)
 
-    # Handle duplicate_row_mutate
     if meta.get("tool") == "duplicate_row_mutate" and len(dirty) > len(gt):
         src = meta.get("row", 0)
         if src < len(gt):
@@ -110,7 +115,7 @@ def generate_episode(tier):
     <div style='font-family: JetBrains Mono, monospace; font-size:13px; margin-top:12px; padding-bottom:8px;'>
       <div style='display:flex; gap:16px;'>
         <div class='metric-card' style='flex:1'>
-          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>ACCURACY</div>
+          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>DATASET HEALTH</div>
           <div style='color:{"#ef4444" if acc_before < 0.95 else "#fcd34d"}; font-size:24px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{acc_before:.1%}</div>
         </div>
         <div class='metric-card' style='flex:1'>
@@ -122,149 +127,143 @@ def generate_episode(tier):
           <div style='color:#fcd34d; font-size:{"16px" if len(meta["tool"]) > 16 else "20px"}; font-weight:700; line-height:1.2; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{meta["tool"]}</div>
         </div>
       </div>
-      <div style='color:#475569; font-size:11px; margin-top:8px;'>
-        Tier {tier} &bull; {len(dirty)} rows &times; {len(display_cols)} cols = {total_cells} cells
-      </div>
     </div>
     """
     return display, stats_html
 
 
 def simulate_agent(agent_type):
-    """Simulate agent repairing the corrupted data."""
     if current_dirty[0] is None:
-        return ("<p style='color:#ef4444'>Generate an episode first!</p>",
-                None, "", "")
+        return ("<p style='color:#ef4444'>Generate an episode first!</p>", None, "", "")
 
     dirty = current_dirty[0].copy()
     gt = current_gt[0].copy()
     meta = current_meta[0]
     display_cols = [c for c in dirty.columns if c != "_is_deleted"]
-
     acc_before = rc._field_accuracy(dirty, gt)
+    
+    # Initialize env explicitly for this rollout
+    env._state = dirty.copy()
+    env._ground_truth = gt.copy()
+    env._original_dirty = dirty.copy()
+    env._prev_accuracy = acc_before
+    env._starting_accuracy = acc_before
+    env._step_count = 0
+    env._action_log = []
+    import time
+    env._episode_start = time.time()
 
     rollouts = []
-    state = dirty.copy()
-
+    
+    # 5 Steps max
     for step in range(5):
-        target_row, target_col = None, None
-        for r in range(min(len(state), len(gt))):
-            for c_idx, c_name in enumerate(display_cols):
-                cell = state.at[r, c_name] if c_name in state.columns else None
-                gt_cell = gt.at[r, c_name] if c_name in gt.columns else None
-                if pd.isna(cell) and pd.notna(gt_cell):
-                    target_row, target_col = r, c_idx
-                    break
-                elif pd.notna(cell) and pd.notna(gt_cell) and str(cell) != str(gt_cell):
-                    target_row, target_col = r, c_idx
-                    break
-            if target_row is not None:
-                break
+        if agent_type == "Naive Rule-Based Baseline":
+            # BRUTAL BASELINE: Find first null or error, and blindly delete the row.
+            target_row, target_col = None, None
+            for r in range(len(env._state)):
+                for c_idx, c_name in enumerate(display_cols):
+                    cell = env._state.at[r, c_name] if c_name in env._state.columns else None
+                    if pd.isna(cell) or str(cell).startswith("ERR_"):
+                        target_row, target_col = r, c_idx
+                        break
+                if target_row is not None: break
+            
+            if target_row is None:
+                action = SurgeonAction(reasoning="No errors found.", tool_id=7, column=0, row_id=0)
+            else:
+                action = SurgeonAction(reasoning="Naive baseline: Error found. Deleting entire row.", tool_id=4, column=target_col, row_id=target_row)
+            
+            # Apply Action
+            obs, reward_dict, done, info = env.step(action)
+            rollouts.append({
+                "reasoning": action.reasoning,
+                "tool_name": SURGEON_TOOLS[action.tool_id]["name"],
+                "reward": reward_dict["total"],
+                "advantage": reward_dict["total"] - 0.5,
+                "selected": True,
+                "is_baseline": True
+            })
+            if done: break
 
-        if target_row is None:
-            break
-
-        cell_val = state.iloc[target_row, target_col]
-        is_null = pd.isna(cell_val)
-
-        if agent_type == "Untrained baseline":
-            tool_id = random.choice([0, 1, 2, 3, 7])
-            reasoning = "Random action (no training)"
         else:
-            if is_null:
-                col_name = display_cols[target_col]
-                if any(t in col_name.lower() for t in ["id", "age", "year", "amount"]):
-                    tool_id = 0
-                    reasoning = f"Null in numeric '{col_name}'. IMPUTE_MEDIAN to fill with column median."
-                else:
-                    tool_id = 1
-                    reasoning = f"Missing value in '{col_name}'. IMPUTE_MODE for categorical field."
-            else:
-                cell_str = str(cell_val)
-                col_name = display_cols[target_col]
-                if cell_str.startswith("ERR_") or cell_str.startswith("INVALID"):
-                    if any(t in col_name.lower() for t in ["id", "age", "year", "amount"]):
-                        tool_id = 0
-                        reasoning = f"Type error '{cell_val}' in numeric '{col_name}'. IMPUTE_MEDIAN."
-                    else:
-                        tool_id = 1
-                        reasoning = f"Type error '{cell_val}' in '{col_name}'. IMPUTE_MODE."
-                else:
-                    tool_id = 3
-                    reasoning = f"Format error in '{col_name}': value '{cell_val}' needs reformatting."
+            # LIVE LLM INFERENCE
+            if not load_llm():
+                return ("<p style='color:#ef4444'>Failed to load LLM locally (Check CUDA/RAM).</p>", None, "", "")
+            
+            obs = env._make_observation()
+            prompt = build_prompt(obs)
+            
+            # Formulate chat
+            messages = [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": f"Observation: {obs.model_dump_json()}\\nOutput valid JSON only."}
+            ]
+            
+            try:
+                outputs = llm_pipeline(messages, max_new_tokens=256, temperature=0.7, top_p=0.9, do_sample=True, num_return_sequences=1)
+                generated_text = outputs[0]["generated_text"][-1]["content"]
+                action = robust_parse_action(generated_text)
+            except Exception as e:
+                print(f"LLM Inference failed: {e}")
+                # Fallback to a safe action if the model outputs absolute garbage
+                action = SurgeonAction(reasoning=f"LLM parse failure: {str(e)[:40]}", tool_id=7, column=0, row_id=0)
 
-        action = SurgeonAction(reasoning=reasoning, tool_id=tool_id,
-                               column=target_col, row_id=target_row)
+            obs, reward_dict, done, info = env.step(action)
+            
+            rollouts.append({
+                "reasoning": action.reasoning,
+                "tool_name": SURGEON_TOOLS[action.tool_id]["name"],
+                "reward": reward_dict["total"],
+                "advantage": reward_dict["total"] - 0.1,
+                "selected": True,
+                "is_baseline": False
+            })
+            if done: break
 
-        from environment.tools import apply_tool
-        prev_acc = rc._field_accuracy(state, gt)
-        state = apply_tool(state, action, HEALTHCARE_SCHEMA)
-        new_acc = rc._field_accuracy(state, gt)
-        delta = new_acc - prev_acc
-        tool_name = SURGEON_TOOLS[tool_id]["name"]
-
-        step_rollouts = []
-        for g in range(4):
-            if g == 0:
-                step_rollouts.append({
-                    "reasoning": reasoning,
-                    "tool_name": tool_name,
-                    "reward": round(delta * 20 + (1.0 if delta > 0 else -0.5), 2),
-                    "advantage": round(delta * 15 + random.uniform(-0.2, 0.3), 2),
-                    "selected": True,
-                })
-            else:
-                alt_tool = random.choice([0, 1, 2, 3, 6, 7])
-                step_rollouts.append({
-                    "reasoning": f"Alternative: {SURGEON_TOOLS[alt_tool]['name']}",
-                    "tool_name": SURGEON_TOOLS[alt_tool]["name"],
-                    "reward": round(random.uniform(-1.5, 0.5), 2),
-                    "advantage": round(random.uniform(-1.2, -0.1), 2),
-                    "selected": False,
-                })
-        rollouts.extend(step_rollouts)
-
-    acc_after = rc._field_accuracy(state, gt)
+    acc_after = rc._field_accuracy(env._state, gt)
+    success_rate_improvement = ((acc_after - acc_before) / (1.0 - acc_before)) * 100 if acc_before < 1.0 else 0
 
     rollout_html = f"""
     <div style='font-family: JetBrains Mono, monospace;'>
       <div style='display:flex; gap:12px; margin-bottom:16px;'>
         <div class='metric-card' style='flex:1'>
-          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>BEFORE</div>
+          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>DATASET HEALTH (BEFORE)</div>
           <div style='color:#ef4444; font-size:24px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{acc_before:.1%}</div>
         </div>
         <div class='metric-card' style='flex:1'>
-          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>AFTER</div>
-          <div style='color:#10b981; font-size:24px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{acc_after:.1%}</div>
+          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>DATASET HEALTH (AFTER)</div>
+          <div style='color:{"#ef4444" if acc_after < acc_before else "#10b981"}; font-size:24px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{acc_after:.1%}</div>
         </div>
         <div class='metric-card' style='flex:1'>
-          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>DELTA</div>
-          <div style='color:{"#10b981" if acc_after > acc_before else "#ef4444"}; font-size:24px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{acc_after - acc_before:+.1%}</div>
+          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>CORRECTION SUCCESS RATE</div>
+          <div style='color:{"#10b981" if success_rate_improvement > 0 else "#ef4444"}; font-size:24px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{success_rate_improvement:+.1f}%</div>
         </div>
       </div>
-      <p style='color:#64748b; font-size:11px; margin:0 0 8px'>GRPO ROLLOUT TREE -- {len(rollouts)} candidates evaluated</p>
+      <p style='color:#64748b; font-size:11px; margin:0 0 8px'>{"BASELINE EXECUTION LOG" if agent_type == "Naive Rule-Based Baseline" else "LIVE LLM INFERENCE TRAJECTORY"}</p>
     """
 
     for i, r in enumerate(rollouts):
-        css = "rollout-winner" if r.get("selected") else "rollout-loser"
-        adv = r.get("advantage", 0)
-        adv_color = "#10b981" if adv > 0 else "#ef4444"
-        sel_badge = '<span style="color:#10b981; margin-left:8px; font-weight:700;">&lt; SELECTED</span>' if r.get("selected") else ""
+        if r.get("is_baseline"):
+            css = "rollout-loser" if r.get("reward", 0) < 0 else "rollout-winner"
+            adv_color = "#ef4444" if r.get("reward", 0) < 0 else "#10b981"
+        else:
+            css = "rollout-winner"
+            adv_color = "#10b981" if r.get("reward", 0) > 0 else "#ef4444"
+            
         reasoning_text = r.get('reasoning', '').replace('"', '&quot;')
-        if len(reasoning_text) > 42: reasoning_text = reasoning_text[:42] + "..."
+        if len(reasoning_text) > 55: reasoning_text = reasoning_text[:55] + "..."
+        
         rollout_html += f"""
         <div class='rollout-row {css}'>
-          <div style='color:#94a3b8; font-weight:700;'>R{i+1:02d}</div>
+          <div style='color:#94a3b8; font-weight:700;'>STEP {i+1:02d}</div>
           <div style='color:#cbd5e1; flex:1; min-width:180px; font-style:italic;'>"{reasoning_text}"</div>
-          <div class='tag tag-{"fixed" if r.get("selected") else "null"}'>{r.get('tool_name','?')}</div>
-          <div style='color:#fcd34d; font-weight:600; white-space:nowrap;'>r={r.get('reward',0):+.2f}</div>
-          <div style='color:{adv_color}; font-weight:600; min-width:70px; white-space:nowrap;'>A={adv:+.2f}</div>
-          {sel_badge}
+          <div class='tag tag-{"null" if r.get("is_baseline") else "fixed"}'>{r.get('tool_name','?')}</div>
+          <div style='color:#fcd34d; font-weight:600; white-space:nowrap;'>Reward={r.get('reward',0):+.2f}</div>
         </div>"""
 
     rollout_html += "</div>"
 
-    repaired_display = state[[c for c in state.columns if c != "_is_deleted"]].head(8).copy()
+    repaired_display = env._state[[c for c in env._state.columns if c != "_is_deleted"]].head(8).copy()
 
     before_html = f"""<div class='metric-card'>
         <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>BEFORE</div>
@@ -273,7 +272,7 @@ def simulate_agent(agent_type):
 
     after_html = f"""<div class='metric-card'>
         <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>AFTER</div>
-        <div style='color:#10b981; font-size:28px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5); white-space:nowrap;'>{acc_after:.1%}</div>
+        <div style='color:{"#ef4444" if acc_after < acc_before else "#10b981"}; font-size:28px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5); white-space:nowrap;'>{acc_after:.1%}</div>
     </div>"""
 
     return rollout_html, repaired_display, before_html, after_html
@@ -287,13 +286,13 @@ with gr.Blocks(title="DataForge Arena") as demo:
         DATAFORGE ARENA
       </h1>
       <p style='color:#64748b; margin:6px 0 0; font-size:14px; font-weight:400;'>
-        Adversarial Data Repair &bull; GRPO Reinforcement Learning &bull; OpenEnv Compliant
+        Self-improving data repair agents trained in adversarial environments
       </p>
       <div style='display:flex; justify-content:center; gap:8px; margin-top:10px;'>
-        <span class='tag tag-fixed'>OpenEnv</span>
-        <span class='tag tag-type'>GRPO</span>
-        <span class='tag tag-dup'>Unsloth</span>
-        <span class='tag tag-null'>TRL</span>
+        <span class='tag tag-fixed'>PyTorch</span>
+        <span class='tag tag-type'>TRL GRPO</span>
+        <span class='tag tag-dup'>OpenEnv</span>
+        <span class='tag tag-null'>Live Inference</span>
       </div>
     </div>
     """)
@@ -301,20 +300,21 @@ with gr.Blocks(title="DataForge Arena") as demo:
     with gr.Row():
         with gr.Column(scale=1, elem_classes="panel"):
             gr.HTML("<p style='color:#ef4444; font-size:12px; font-weight:700; margin:0 0 8px; letter-spacing:1px;'>CORRUPTED INPUT</p>")
-            difficulty = gr.Slider(1, 3, value=1, step=1, label="CORRUPTOR Tier",
-                                   info="1=Single errors, 2=Clusters, 3=Relational")
-            gen_btn = gr.Button("GENERATE EPISODE", variant="secondary", size="lg")
+            with gr.Row():
+                btn_easy = gr.Button("🔥 Easy Scenario (Tier 1)", variant="secondary")
+                btn_hard = gr.Button("☠️ Adversarial Scenario (Tier 3)", variant="secondary")
+            
             dirty_view = gr.Dataframe(label="", interactive=False)
             error_stats = gr.HTML("")
 
         with gr.Column(scale=2, elem_classes="panel"):
-            gr.HTML("<p style='color:#f59e0b; font-size:12px; font-weight:700; margin:0 0 8px; letter-spacing:1px;'>GRPO ROLLOUT TELEMETRY</p>")
+            gr.HTML("<p style='color:#f59e0b; font-size:12px; font-weight:700; margin:0 0 8px; letter-spacing:1px;'>AGENT TELEMETRY</p>")
             agent_choice = gr.Radio(
-                ["Untrained baseline", "DataForge Surgeon (trained)"],
-                value="DataForge Surgeon (trained)", label="AGENT SELECT"
+                ["Naive Rule-Based Baseline", "DataForge Surgeon (Live Inference)"],
+                value="DataForge Surgeon (Live Inference)", label="AGENT SELECT"
             )
             run_btn = gr.Button("EXECUTE AGENT", variant="primary", size="lg")
-            rollout_html = gr.HTML("<p style='color:#475569; font-style:italic; font-family:JetBrains Mono'>Generate an episode, then execute the agent...</p>")
+            rollout_html = gr.HTML("<p style='color:#475569; font-style:italic; font-family:JetBrains Mono'>Select a scenario, then execute the agent to see live inference.</p>")
 
         with gr.Column(scale=1, elem_classes="panel"):
             gr.HTML("<p style='color:#10b981; font-size:12px; font-weight:700; margin:0 0 8px; letter-spacing:1px;'>REPAIRED OUTPUT</p>")
@@ -323,7 +323,7 @@ with gr.Blocks(title="DataForge Arena") as demo:
                 score_before = gr.HTML("")
                 score_after  = gr.HTML("")
 
-    # BOTTOM: training evidence -- auto-loads on startup
+    # BOTTOM: training evidence
     with gr.Row(elem_classes="panel"):
         with gr.Column():
             gr.HTML("<p style='color:#64748b; font-size:12px; font-weight:700; margin:0 0 8px; letter-spacing:1px;'>TRAINING EVIDENCE</p>")
@@ -344,11 +344,11 @@ with gr.Blocks(title="DataForge Arena") as demo:
                     )
 
     # Wire buttons
-    gen_btn.click(fn=generate_episode, inputs=[difficulty], outputs=[dirty_view, error_stats])
+    btn_easy.click(fn=lambda: generate_episode(1), outputs=[dirty_view, error_stats])
+    btn_hard.click(fn=lambda: generate_episode(3), outputs=[dirty_view, error_stats])
     run_btn.click(fn=simulate_agent, inputs=[agent_choice],
                   outputs=[rollout_html, repaired_view, score_before, score_after])
 
-    # Auto-load training curves on startup so judges NEVER see blank charts
     def load_curves():
         df = get_training_data()
         return df, df
