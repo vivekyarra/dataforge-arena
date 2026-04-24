@@ -1,12 +1,16 @@
-"""FastAPI server -- required for OpenEnv compliance and HF Spaces."""
+"""
+FastAPI server -- required for OpenEnv compliance and HF Spaces.
+Interactive API docs available at /docs (Swagger UI).
+"""
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import pandas as pd
 import uvicorn
 
 from environment.env import DataForgeEnv, SurgeonAction
 from environment.corruptor import Corruptor
-from environment.schemas import HEALTHCARE_SCHEMA
+from environment.schemas import HEALTHCARE_SCHEMA, SURGEON_TOOLS
 
 env = None
 
@@ -21,7 +25,21 @@ async def lifespan(app: FastAPI):
     )
     yield
 
-app = FastAPI(title="DataForge Arena", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="DataForge Arena",
+    version="1.0.0",
+    description="Adversarial RL environment for data quality repair. OpenEnv compliant.",
+    lifespan=lifespan,
+)
+
+# FIX B: CORS — without this, judges' browsers block all API calls
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health")
 async def health():
@@ -29,6 +47,20 @@ async def health():
         "status": "ok",
         "difficulty": env._corruptor.difficulty if env else 0,
         "epoch": env._corruptor._epoch if env else 0,
+    }
+
+@app.get("/info")
+async def info():
+    """Environment metadata — useful for judges exploring the API."""
+    return {
+        "name": "DataForge Arena",
+        "version": "1.0.0",
+        "openenv_compliant": True,
+        "surgeon_tools": {k: v["name"] for k, v in SURGEON_TOOLS.items()},
+        "corruption_tiers": 3,
+        "reward_signals": ["accuracy_delta", "accuracy_absolute", "tool_logic",
+                          "reasoning", "efficiency", "anti_hack"],
+        "endpoints": ["/health", "/info", "/reset", "/step", "/docs"],
     }
 
 @app.post("/reset")

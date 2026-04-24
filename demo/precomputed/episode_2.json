@@ -1,0 +1,75 @@
+{
+  "episode": 2,
+  "tier": 2,
+  "label": "Tier 2 -- null cluster/date swap",
+  "corruption": "cross_field_swap",
+  "accuracy_before": 0.998,
+  "accuracy_after": 0.998,
+  "steps": [
+    {
+      "step": 0,
+      "action": {
+        "reasoning": "Type error '97' in 'age' -> impute",
+        "tool_id": 0,
+        "column": 2,
+        "row_id": 19
+      },
+      "tool_name": "IMPUTE_MEDIAN",
+      "accuracy_before": 0.998,
+      "accuracy_after": 0.998,
+      "delta": 0.0
+    },
+    {
+      "step": 1,
+      "action": {
+        "reasoning": "Type error '50.0' in 'age' -> impute",
+        "tool_id": 0,
+        "column": 2,
+        "row_id": 19
+      },
+      "tool_name": "IMPUTE_MEDIAN",
+      "accuracy_before": 0.998,
+      "accuracy_after": 0.998,
+      "delta": 0.0
+    },
+    {
+      "step": 2,
+      "action": {
+        "reasoning": "Type error '49.5' in 'age' -> impute",
+        "tool_id": 0,
+        "column": 2,
+        "row_id": 19
+      },
+      "tool_name": "IMPUTE_MEDIAN",
+      "accuracy_before": 0.998,
+      "accuracy_after": 0.998,
+      "delta": 0.0
+    },
+    {
+      "step": 3,
+      "action": {
+        "reasoning": "Type error '49.25' in 'age' -> impute",
+        "tool_id": 0,
+        "column": 2,
+        "row_id": 19
+      },
+      "tool_name": "IMPUTE_MEDIAN",
+      "accuracy_before": 0.998,
+      "accuracy_after": 0.998,
+      "delta": 0.0
+    },
+    {
+      "step": 4,
+      "action": {
+        "reasoning": "Type error '49.125' in 'age' -> impute",
+        "tool_id": 0,
+        "column": 2,
+        "row_id": 19
+      },
+      "tool_name": "IMPUTE_MEDIAN",
+      "accuracy_before": 0.998,
+      "accuracy_after": 0.998,
+      "delta": 0.0
+    }
+  ]
+}

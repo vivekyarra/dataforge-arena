@@ -1,0 +1,75 @@
+{
+  "episode": 1,
+  "tier": 1,
+  "label": "Tier 1 -- single null/type error",
+  "corruption": "inject_null_single",
+  "accuracy_before": 0.998,
+  "accuracy_after": 0.998,
+  "steps": [
+    {
+      "step": 0,
+      "action": {
+        "reasoning": "Null in 'diagnosis' -> IMPUTE_MODE",
+        "tool_id": 1,
+        "column": 6,
+        "row_id": 47
+      },
+      "tool_name": "IMPUTE_MODE",
+      "accuracy_before": 0.998,
+      "accuracy_after": 0.998,
+      "delta": 0.0
+    },
+    {
+      "step": 1,
+      "action": {
+        "reasoning": "Type error 'Fracture' in 'diagnosis' -> impute",
+        "tool_id": 1,
+        "column": 6,
+        "row_id": 47
+      },
+      "tool_name": "IMPUTE_MODE",
+      "accuracy_before": 0.998,
+      "accuracy_after": 0.998,
+      "delta": 0.0
+    },
+    {
+      "step": 2,
+      "action": {
+        "reasoning": "Type error 'Fracture' in 'diagnosis' -> impute",
+        "tool_id": 1,
+        "column": 6,
+        "row_id": 47
+      },
+      "tool_name": "IMPUTE_MODE",
+      "accuracy_before": 0.998,
+      "accuracy_after": 0.998,
+      "delta": 0.0
+    },
+    {
+      "step": 3,
+      "action": {
+        "reasoning": "Type error 'Fracture' in 'diagnosis' -> impute",
+        "tool_id": 1,
+        "column": 6,
+        "row_id": 47
+      },
+      "tool_name": "IMPUTE_MODE",
+      "accuracy_before": 0.998,
+      "accuracy_after": 0.998,
+      "delta": 0.0
+    },
+    {
+      "step": 4,
+      "action": {
+        "reasoning": "Type error 'Fracture' in 'diagnosis' -> impute",
+        "tool_id": 1,
+        "column": 6,
+        "row_id": 47
+      },
+      "tool_name": "IMPUTE_MODE",
+      "accuracy_before": 0.998,
+      "accuracy_after": 0.998,
+      "delta": 0.0
+    }
+  ]
+}

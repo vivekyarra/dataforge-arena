@@ -112,9 +112,10 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
             parse_successes=parse_successes[0],
             total_rollouts=total_rollouts[0],
         )
+        parse_rate = parse_successes[0] / max(total_rollouts[0], 1) * 100
         print(f"Step {current_step[0]:3d} | reward={avg_reward:+.3f} | "
               f"difficulty={corruptor.difficulty} | "
-              f"parse_ok={parse_successes[0]}/{total_rollouts[0]}")
+              f"parse={parse_rate:.0f}%")
         parse_successes[0] = 0
         total_rollouts[0] = 0
         
@@ -155,7 +156,11 @@ trainer = GRPOTrainer(
         num_generations=model_cfg["num_generations"],
         max_completion_length=256,
         temperature=0.9,
-        beta=get_beta(),
+        # NOTE: GRPOConfig beta is set once at init. Dynamic beta would
+        # require subclassing GRPOTrainer.compute_loss, which is not worth
+        # the complexity. A fixed beta of 0.01 works well for 80-step runs
+        # on T4. For longer runs on A100 (150+ steps), consider 0.005.
+        beta=0.01,
         learning_rate=5e-6,
         per_device_train_batch_size=model_cfg["batch_size"],
         gradient_accumulation_steps=model_cfg["grad_accum"],

@@ -16,8 +16,7 @@ build/
 *.pt
 *.gguf
 
-# Training artifacts
-logs/
+# Training artifacts (keep logs/ tracked!)
 *.csv.bak
 wandb/
 

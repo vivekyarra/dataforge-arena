@@ -1,0 +1,75 @@
+{
+  "episode": 3,
+  "tier": 3,
+  "label": "Tier 3 -- FK violation/duplicate row",
+  "corruption": "break_foreign_key",
+  "accuracy_before": 0.996,
+  "accuracy_after": 0.996,
+  "steps": [
+    {
+      "step": 0,
+      "action": {
+        "reasoning": "Type error '8138' in 'department_id' -> impute",
+        "tool_id": 0,
+        "column": 7,
+        "row_id": 6
+      },
+      "tool_name": "IMPUTE_MEDIAN",
+      "accuracy_before": 0.996,
+      "accuracy_after": 0.996,
+      "delta": 0.0
+    },
+    {
+      "step": 1,
+      "action": {
+        "reasoning": "Type error '4.5' in 'department_id' -> impute",
+        "tool_id": 0,
+        "column": 7,
+        "row_id": 6
+      },
+      "tool_name": "IMPUTE_MEDIAN",
+      "accuracy_before": 0.996,
+      "accuracy_after": 0.996,
+      "delta": 0.0
+    },
+    {
+      "step": 2,
+      "action": {
+        "reasoning": "Type error '4.25' in 'department_id' -> impute",
+        "tool_id": 0,
+        "column": 7,
+        "row_id": 6
+      },
+      "tool_name": "IMPUTE_MEDIAN",
+      "accuracy_before": 0.996,
+      "accuracy_after": 0.996,
+      "delta": 0.0
+    },
+    {
+      "step": 3,
+      "action": {
+        "reasoning": "Type error '4.125' in 'department_id' -> impute",
+        "tool_id": 0,
+        "column": 7,
+        "row_id": 6
+      },
+      "tool_name": "IMPUTE_MEDIAN",
+      "accuracy_before": 0.996,
+      "accuracy_after": 0.996,
+      "delta": 0.0
+    },
+    {
+      "step": 4,
+      "action": {
+        "reasoning": "Type error '4.0625' in 'department_id' -> impute",
+        "tool_id": 0,
+        "column": 7,
+        "row_id": 6
+      },
+      "tool_name": "IMPUTE_MEDIAN",
+      "accuracy_before": 0.996,
+      "accuracy_after": 0.996,
+      "delta": 0.0
+    }
+  ]
+}
