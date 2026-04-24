@@ -27,7 +27,7 @@ We built a system powered by **PyTorch**, **TRL**, and **OpenEnv** featuring two
     CORRUPTOR                              SURGEON
     (Rule-Based)                           (Live LLM + GRPO)
          │                                      │
-         │   "Break this data."                  │   "Fix it."
+         │   "Break this data."                 │   "Fix it."
          ▼                                      ▼
     ┌─────────────────────────────────────────────────┐
     │              DataForge Environment               │
