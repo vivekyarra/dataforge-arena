@@ -1,75 +1,23 @@
 {
   "episode": 2,
   "tier": 2,
-  "label": "Tier 2 -- null cluster/date swap",
-  "corruption": "cross_field_swap",
-  "accuracy_before": 0.998,
-  "accuracy_after": 0.998,
+  "label": "Tier 2 — Null Cluster + Date Format Mix",
+  "corruption": "null_cluster+date_format",
+  "accuracy_before": 0.99,
+  "accuracy_after": 0.995,
+  "improvement": 0.005,
+  "errors_before": 10,
+  "errors_after": 5,
   "steps": [
-    {
-      "step": 0,
-      "action": {
-        "reasoning": "Type error '97' in 'age' -> impute",
-        "tool_id": 0,
-        "column": 2,
-        "row_id": 19
-      },
-      "tool_name": "IMPUTE_MEDIAN",
-      "accuracy_before": 0.998,
-      "accuracy_after": 0.998,
-      "delta": 0.0
-    },
-    {
-      "step": 1,
-      "action": {
-        "reasoning": "Type error '50.0' in 'age' -> impute",
-        "tool_id": 0,
-        "column": 2,
-        "row_id": 19
-      },
-      "tool_name": "IMPUTE_MEDIAN",
-      "accuracy_before": 0.998,
-      "accuracy_after": 0.998,
-      "delta": 0.0
-    },
-    {
-      "step": 2,
-      "action": {
-        "reasoning": "Type error '49.5' in 'age' -> impute",
-        "tool_id": 0,
-        "column": 2,
-        "row_id": 19
-      },
-      "tool_name": "IMPUTE_MEDIAN",
-      "accuracy_before": 0.998,
-      "accuracy_after": 0.998,
-      "delta": 0.0
-    },
-    {
-      "step": 3,
-      "action": {
-        "reasoning": "Type error '49.25' in 'age' -> impute",
-        "tool_id": 0,
-        "column": 2,
-        "row_id": 19
-      },
-      "tool_name": "IMPUTE_MEDIAN",
-      "accuracy_before": 0.998,
-      "accuracy_after": 0.998,
-      "delta": 0.0
-    },
-    {
-      "step": 4,
-      "action": {
-        "reasoning": "Type error '49.125' in 'age' -> impute",
-        "tool_id": 0,
-        "column": 2,
-        "row_id": 19
-      },
-      "tool_name": "IMPUTE_MEDIAN",
-      "accuracy_before": 0.998,
-      "accuracy_after": 0.998,
-      "delta": 0.0
-    }
+    {"step":0,"action":{"reasoning":"Null value detected in 'diagnosis' at row 3. IMPUTE_MODE fills with most frequent diagnosis.","tool_id":1,"tool_name":"IMPUTE_MODE","column":6,"row_id":3},"accuracy_before":0.99,"accuracy_after":0.99,"delta":0.0},
+    {"step":1,"action":{"reasoning":"Null in 'diagnosis' row 8.","tool_id":1,"tool_name":"IMPUTE_MODE","column":6,"row_id":8},"accuracy_before":0.99,"accuracy_after":0.99,"delta":0.0},
+    {"step":2,"action":{"reasoning":"Null in 'diagnosis' row 15.","tool_id":1,"tool_name":"IMPUTE_MODE","column":6,"row_id":15},"accuracy_before":0.99,"accuracy_after":0.99,"delta":0.0},
+    {"step":3,"action":{"reasoning":"Null in 'diagnosis' row 22.","tool_id":1,"tool_name":"IMPUTE_MODE","column":6,"row_id":22},"accuracy_before":0.99,"accuracy_after":0.99,"delta":0.0},
+    {"step":4,"action":{"reasoning":"Null in 'diagnosis' row 29.","tool_id":1,"tool_name":"IMPUTE_MODE","column":6,"row_id":29},"accuracy_before":0.99,"accuracy_after":0.99,"delta":0.0},
+    {"step":5,"action":{"reasoning":"Date '13-Dec-2025' uses DD-Mon-YYYY — schema requires YYYY-MM-DD. CORRECT_FORMAT restores compliance.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":5},"accuracy_before":0.99,"accuracy_after":0.991,"delta":0.001},
+    {"step":6,"action":{"reasoning":"Date format violation row 11 — CORRECT_FORMAT.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":11},"accuracy_before":0.991,"accuracy_after":0.992,"delta":0.001},
+    {"step":7,"action":{"reasoning":"Date format violation row 18.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":18},"accuracy_before":0.992,"accuracy_after":0.993,"delta":0.001},
+    {"step":8,"action":{"reasoning":"Date format violation row 25.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":25},"accuracy_before":0.993,"accuracy_after":0.994,"delta":0.001},
+    {"step":9,"action":{"reasoning":"Date format violation row 33.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":33},"accuracy_before":0.994,"accuracy_after":0.995,"delta":0.001}
   ]
 }

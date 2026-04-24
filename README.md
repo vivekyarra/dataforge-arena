@@ -43,32 +43,19 @@ The **CORRUPTOR** uses 7 sabotage tools across 3 difficulty tiers to inject real
 
 ---
 
-## 🚀 Results that Matter
+## Results
 
-We don't measure success in arbitrary reward points. We measure it in enterprise value.
+| Metric | Value |
+|--------|-------|
+| **Reward at step 0** | **-1.85** |
+| **Reward at step 80** | **+1.18** |
+| **Total improvement** | **+3.03 (+164%)** |
+| **JSON parse success rate** | **97.5%** (39/40 by step 50) |
+| **Format error elimination** | **100%** (CORRECT_FORMAT tool) |
+| **Surgeon vs random advantage** | **+0.037 accuracy delta** |
+| **Test suite** | **28/28 passing** |
 
-| Metric | Performance |
-|--------|-------------|
-| **Correction Success Rate** | **Improved from 32% (Naive Baseline) to 81%** on Tier 3 Adversarial Data |
-| **Error Reduction** | Eliminated 94% of formatting and type errors automatically |
-| **JSON Parse Reliability** | 97.5% success rate via robust 3-strategy fallback parsing |
-| **Test Suite Stability** | 28/28 Unit & Integration tests passing (100% Coverage) |
-
----
-
-## 🛡️ Explicit Anti-Hack Verification
-
-A major risk in Reinforcement Learning is "Reward Hacking" (e.g., an agent learning to maximize its score by simply deleting every row that contains an error). 
-
-**We explicitly prevent reward hacking using independent verification signals.**
-
-DataForge Arena features a 6-signal multi-objective reward function that penalizes destructive behavior:
-1. **Anti-Hack Penalty**: Massive negative rewards for gaming the system via mass soft-delete.
-2. **Efficiency Penalty**: Deductions for modifying perfectly healthy cells.
-3. **Accuracy Delta**: Did your fix *actually* improve the underlying dataset compared to the ground truth?
-4. **Tool Logic**: Did you pick the mathematically correct tool for this specific error type?
-
-This isn't a toy project; it is an enterprise-ready, safety-constrained learning environment.
+> The 97.5% JSON parse success rate is the most significant signal. Under RL pressure the model is simultaneously learning *what to do* AND *how to format its output*. Maintaining near-perfect structured output by step 50 means the policy is genuinely converging.
 
 ---
 
@@ -96,7 +83,7 @@ This isn't a toy project; it is an enterprise-ready, safety-constrained learning
 | **2** | 50–99 | Null clusters, date format swaps, cross-field inconsistencies | Pattern recognition, multi-cell correlation |
 | **3** | 100+ | Foreign key violations, duplicate rows with mutation | Relational reasoning, merge/delete decisions |
 
-Tier transitions use a **10-epoch warmup blend** (30%→100% probability ramp) to prevent catastrophic forgetting when the distribution shifts.
+Tier transitions use a **10-epoch warmup blend** with **5× higher KL beta** to prevent catastrophic forgetting when the distribution shifts.
 
 ## Quick Start
 

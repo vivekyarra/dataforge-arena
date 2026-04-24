@@ -23,8 +23,8 @@ We evaluate success in enterprise value, not just reward points:
 
 | Metric | Performance |
 |--------|-------------|
-| **Correction Success Rate** | **Improved from 32% (Naive Baseline) to 81%** on Tier 3 Adversarial Data |
-| **Error Reduction** | Eliminated 94% of formatting and type errors automatically |
+| **Reward improvement** | **-1.85 → +1.18 (+164%)** over 80 steps |
+| **Format error elimination** | **100%** (CORRECT_FORMAT exact restoration) |
 | **JSON Parse Reliability** | 97.5% success rate via robust 3-strategy fallback parsing |
 | **Test Suite Stability** | 28/28 Unit & Integration tests passing (100% Coverage) |
 

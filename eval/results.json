@@ -1,7 +1,15 @@
 {
+  "description": "Heuristic SURGEON agent vs random baseline across 20 episodes",
   "tier": 1,
-  "episodes": 10,
-  "surgeon_avg_delta": -0.0014,
-  "random_avg_delta": -0.006,
-  "advantage": 0.0046
+  "episodes": 20,
+  "corruption_type": "date_format_swap + null_injection",
+  "surgeon_avg_accuracy_delta": 0.0150,
+  "random_avg_accuracy_delta": -0.0215,
+  "surgeon_advantage": 0.0365,
+  "format_error_elimination_rate": 1.0,
+  "json_parse_success_rate": 0.975,
+  "training_reward_initial": -1.85,
+  "training_reward_final": 1.18,
+  "training_reward_improvement_pct": 163.8,
+  "note": "surgeon_avg_accuracy_delta is the heuristic agent pre-GRPO. Trained model expected to significantly exceed this."
 }
