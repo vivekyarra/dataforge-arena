@@ -20,11 +20,12 @@ from environment.schemas import HEALTHCARE_SCHEMA, SURGEON_TOOLS
 
 def random_baseline_agent(state: pd.DataFrame, gt: pd.DataFrame) -> SurgeonAction:
     """Untrained agent: picks random tool on random cell."""
+    display_cols = [c for c in state.columns if c != "_is_deleted"]
     return SurgeonAction(
         reasoning="random action",
         tool_id=random.choice([0, 1, 2, 3, 7]),
-        column=random.randint(0, len(state.columns) - 2),  # -2 to skip _is_deleted
-        row_id=random.randint(0, len(state) - 1),
+        column=random.randint(0, max(0, len(display_cols) - 1)),
+        row_id=random.randint(0, max(0, len(state) - 1)),
     )
 
 

@@ -11,8 +11,10 @@ import uvicorn
 from environment.env import DataForgeEnv, SurgeonAction
 from environment.corruptor import Corruptor
 from environment.schemas import HEALTHCARE_SCHEMA, SURGEON_TOOLS
+import asyncio
 
 env = None
+env_lock = asyncio.Lock()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -65,20 +67,22 @@ async def info():
 
 @app.post("/reset")
 async def reset():
-    obs = env.reset()
-    return obs.model_dump()
+    async with env_lock:
+        obs = env.reset()
+        return obs.model_dump()
 
 @app.post("/step")
 async def step(action: SurgeonAction):
-    if env._state is None:
-        raise HTTPException(400, "Call /reset first")
-    obs, reward_dict, done, info = env.step(action)
-    return {
-        "observation": obs.model_dump(),
-        "reward": reward_dict,
-        "done": done,
-        "info": info,
-    }
+    async with env_lock:
+        if env._state is None:
+            raise HTTPException(400, "Call /reset first")
+        obs, reward_dict, done, info = env.step(action)
+        return {
+            "observation": obs.model_dump(),
+            "reward": reward_dict,
+            "done": done,
+            "info": info,
+        }
 
 if __name__ == "__main__":
     uvicorn.run("environment.server:app", host="0.0.0.0", port=7860, reload=False)
