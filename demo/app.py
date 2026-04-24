@@ -32,21 +32,23 @@ current_meta = [None]
 
 # ---------- CSS ---------------------------------------------------
 DARK_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap');
-body, .gradio-container { background: #06060b !important; color: #e2e8f0; font-family: 'Inter', sans-serif; }
-.panel { background: linear-gradient(135deg, #0d0d15 0%, #111118 100%); border: 1px solid #1e293b; border-radius: 12px; padding: 20px; }
-h1 { font-family: 'JetBrains Mono', monospace !important; }
-.metric-card { background: #0f0f1a; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; text-align: center; }
-.rollout-row { padding: 8px 12px; margin: 4px 0; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.rollout-winner { background: linear-gradient(90deg, rgba(16,185,129,0.15) 0%, transparent 100%); border-left: 3px solid #10b981; }
-.rollout-loser  { background: rgba(30,41,59,0.3); border-left: 3px solid #374151; opacity: 0.7; }
-.tag { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
-.tag-null   { background:#7f1d1d; color:#fca5a5; }
-.tag-type   { background:#78350f; color:#fcd34d; }
-.tag-fixed  { background:#064e3b; color:#6ee7b7; }
-.tag-dup    { background:#1e3a5f; color:#93c5fd; }
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap');
+body, .gradio-container { background: #06060b !important; color: #f1f5f9; font-family: 'Inter', sans-serif; }
+.panel { background: linear-gradient(135deg, rgba(13,13,21,0.9) 0%, rgba(17,17,24,0.95) 100%); backdrop-filter: blur(12px); border: 1px solid #1e293b; border-top: 1px solid #334155; border-radius: 12px; padding: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.8), 0 8px 10px -6px rgba(0, 0, 0, 0.5); }
+h1 { font-family: 'JetBrains Mono', monospace !important; text-shadow: 0 0 20px rgba(16, 185, 129, 0.4); }
+.metric-card { background: linear-gradient(180deg, #151522 0%, #0b0b12 100%); border: 1px solid #1e293b; border-top: 1px solid #334155; border-radius: 8px; padding: 16px; text-align: center; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 4px 6px rgba(0,0,0,0.4); word-break: break-word; transition: transform 0.2s ease; }
+.metric-card:hover { transform: translateY(-2px); }
+.rollout-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 14px; margin: 6px 0; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px; transition: all 0.2s ease; }
+.rollout-winner { background: linear-gradient(90deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.05) 60%, transparent 100%); border-left: 3px solid #10b981; box-shadow: inset 1px 0 0 rgba(16,185,129,0.5); }
+.rollout-loser  { background: rgba(30,41,59,0.4); border-left: 3px solid #374151; opacity: 0.8; }
+.rollout-row:hover { background: rgba(51,65,85,0.5); opacity: 1; }
+.tag { padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.3); text-shadow: 0 1px 1px rgba(0,0,0,0.5); }
+.tag-null   { background:linear-gradient(135deg, #7f1d1d, #991b1b); color:#fca5a5; border: 1px solid #b91c1c; }
+.tag-type   { background:linear-gradient(135deg, #78350f, #92400e); color:#fde68a; border: 1px solid #b45309; }
+.tag-fixed  { background:linear-gradient(135deg, #064e3b, #065f46); color:#a7f3d0; border: 1px solid #059669; }
+.tag-dup    { background:linear-gradient(135deg, #1e3a8a, #1d4ed8); color:#bfdbfe; border: 1px solid #2563eb; }
 .pulse { animation: pulse 2s infinite; }
-@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
+@keyframes pulse { 0%,100% { opacity:1; box-shadow: 0 0 0 0 rgba(16,185,129,0.4); } 50% { opacity:0.8; box-shadow: 0 0 10px 4px rgba(16,185,129,0); } }
 """
 
 # ---------- training data loader with synthetic fallback ----------
@@ -105,19 +107,19 @@ def generate_episode(tier):
     total_cells = dirty[display_cols].size
 
     stats_html = f"""
-    <div style='font-family: JetBrains Mono, monospace; font-size:13px; margin-top:12px;'>
+    <div style='font-family: JetBrains Mono, monospace; font-size:13px; margin-top:12px; padding-bottom:8px;'>
       <div style='display:flex; gap:16px;'>
         <div class='metric-card' style='flex:1'>
-          <div style='color:#64748b; font-size:11px;'>ACCURACY</div>
-          <div style='color:{"#ef4444" if acc_before < 0.95 else "#f59e0b"}; font-size:24px; font-weight:700;'>{acc_before:.1%}</div>
+          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>ACCURACY</div>
+          <div style='color:{"#ef4444" if acc_before < 0.95 else "#fcd34d"}; font-size:24px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{acc_before:.1%}</div>
         </div>
         <div class='metric-card' style='flex:1'>
-          <div style='color:#64748b; font-size:11px;'>ERRORS</div>
-          <div style='color:#ef4444; font-size:24px; font-weight:700;'>{total_nulls}</div>
+          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>ERRORS</div>
+          <div style='color:#ef4444; font-size:24px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{total_nulls}</div>
         </div>
         <div class='metric-card' style='flex:1'>
-          <div style='color:#64748b; font-size:11px;'>CORRUPTION</div>
-          <div style='color:#f59e0b; font-size:24px; font-weight:700;'>{meta["tool"]}</div>
+          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>CORRUPTION</div>
+          <div style='color:#fcd34d; font-size:{"16px" if len(meta["tool"]) > 16 else "20px"}; font-weight:700; line-height:1.2; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{meta["tool"]}</div>
         </div>
       </div>
       <div style='color:#475569; font-size:11px; margin-top:8px;'>
@@ -228,16 +230,16 @@ def simulate_agent(agent_type):
     <div style='font-family: JetBrains Mono, monospace;'>
       <div style='display:flex; gap:12px; margin-bottom:16px;'>
         <div class='metric-card' style='flex:1'>
-          <div style='color:#64748b; font-size:11px;'>BEFORE</div>
-          <div style='color:#ef4444; font-size:20px; font-weight:700;'>{acc_before:.1%}</div>
+          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>BEFORE</div>
+          <div style='color:#ef4444; font-size:24px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{acc_before:.1%}</div>
         </div>
         <div class='metric-card' style='flex:1'>
-          <div style='color:#64748b; font-size:11px;'>AFTER</div>
-          <div style='color:#10b981; font-size:20px; font-weight:700;'>{acc_after:.1%}</div>
+          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>AFTER</div>
+          <div style='color:#10b981; font-size:24px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{acc_after:.1%}</div>
         </div>
         <div class='metric-card' style='flex:1'>
-          <div style='color:#64748b; font-size:11px;'>DELTA</div>
-          <div style='color:{"#10b981" if acc_after > acc_before else "#ef4444"}; font-size:20px; font-weight:700;'>{acc_after - acc_before:+.1%}</div>
+          <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>DELTA</div>
+          <div style='color:{"#10b981" if acc_after > acc_before else "#ef4444"}; font-size:24px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5);'>{acc_after - acc_before:+.1%}</div>
         </div>
       </div>
       <p style='color:#64748b; font-size:11px; margin:0 0 8px'>GRPO ROLLOUT TREE -- {len(rollouts)} candidates evaluated</p>
@@ -248,13 +250,15 @@ def simulate_agent(agent_type):
         adv = r.get("advantage", 0)
         adv_color = "#10b981" if adv > 0 else "#ef4444"
         sel_badge = '<span style="color:#10b981; margin-left:8px; font-weight:700;">&lt; SELECTED</span>' if r.get("selected") else ""
+        reasoning_text = r.get('reasoning', '').replace('"', '&quot;')
+        if len(reasoning_text) > 42: reasoning_text = reasoning_text[:42] + "..."
         rollout_html += f"""
         <div class='rollout-row {css}'>
-          <span style='color:#64748b'>R{i+1:02d}</span>
-          <span style='color:#94a3b8; margin:0 8px'>"{r.get('reasoning', '')[:55]}..."</span>
-          <span class='tag tag-{"fixed" if r.get("selected") else "null"}'>{r.get('tool_name','?')}</span>
-          <span style='color:#f59e0b; margin:0 6px'>r={r.get('reward',0):+.2f}</span>
-          <span style='color:{adv_color}'>A={adv:+.2f}</span>
+          <div style='color:#94a3b8; font-weight:700;'>R{i+1:02d}</div>
+          <div style='color:#cbd5e1; flex:1; min-width:180px; font-style:italic;'>"{reasoning_text}"</div>
+          <div class='tag tag-{"fixed" if r.get("selected") else "null"}'>{r.get('tool_name','?')}</div>
+          <div style='color:#fcd34d; font-weight:600; white-space:nowrap;'>r={r.get('reward',0):+.2f}</div>
+          <div style='color:{adv_color}; font-weight:600; min-width:70px; white-space:nowrap;'>A={adv:+.2f}</div>
           {sel_badge}
         </div>"""
 
@@ -263,20 +267,20 @@ def simulate_agent(agent_type):
     repaired_display = state[[c for c in state.columns if c != "_is_deleted"]].head(8).copy()
 
     before_html = f"""<div class='metric-card'>
-        <div style='color:#64748b; font-size:11px;'>BEFORE</div>
-        <div style='color:#ef4444; font-size:28px; font-weight:700;'>{acc_before:.1%}</div>
+        <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>BEFORE</div>
+        <div style='color:#ef4444; font-size:28px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5); white-space:nowrap;'>{acc_before:.1%}</div>
     </div>"""
 
     after_html = f"""<div class='metric-card'>
-        <div style='color:#64748b; font-size:11px;'>AFTER</div>
-        <div style='color:#10b981; font-size:28px; font-weight:700;'>{acc_after:.1%}</div>
+        <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>AFTER</div>
+        <div style='color:#10b981; font-size:28px; font-weight:700; text-shadow: 0 2px 4px rgba(0,0,0,0.5); white-space:nowrap;'>{acc_after:.1%}</div>
     </div>"""
 
     return rollout_html, repaired_display, before_html, after_html
 
 
 # ---------- Gradio UI ---------------------------------------------
-with gr.Blocks(css=DARK_CSS, title="DataForge Arena", theme=gr.themes.Base()) as demo:
+with gr.Blocks(title="DataForge Arena") as demo:
     gr.HTML("""
     <div style='text-align:center; padding:24px 0 16px; border-bottom:1px solid #1e293b; margin-bottom:20px'>
       <h1 style='font-family: JetBrains Mono, monospace; color:#10b981; font-size:32px; margin:0; letter-spacing:-1px;'>
@@ -300,7 +304,7 @@ with gr.Blocks(css=DARK_CSS, title="DataForge Arena", theme=gr.themes.Base()) as
             difficulty = gr.Slider(1, 3, value=1, step=1, label="CORRUPTOR Tier",
                                    info="1=Single errors, 2=Clusters, 3=Relational")
             gen_btn = gr.Button("GENERATE EPISODE", variant="secondary", size="lg")
-            dirty_view = gr.Dataframe(label="", interactive=False, max_rows=8)
+            dirty_view = gr.Dataframe(label="", interactive=False)
             error_stats = gr.HTML("")
 
         with gr.Column(scale=2, elem_classes="panel"):
@@ -314,7 +318,7 @@ with gr.Blocks(css=DARK_CSS, title="DataForge Arena", theme=gr.themes.Base()) as
 
         with gr.Column(scale=1, elem_classes="panel"):
             gr.HTML("<p style='color:#10b981; font-size:12px; font-weight:700; margin:0 0 8px; letter-spacing:1px;'>REPAIRED OUTPUT</p>")
-            repaired_view = gr.Dataframe(label="", interactive=False, max_rows=8)
+            repaired_view = gr.Dataframe(label="", interactive=False)
             with gr.Row():
                 score_before = gr.HTML("")
                 score_after  = gr.HTML("")
@@ -351,4 +355,4 @@ with gr.Blocks(css=DARK_CSS, title="DataForge Arena", theme=gr.themes.Base()) as
 
     demo.load(fn=load_curves, outputs=[reward_plot, difficulty_plot])
 
-demo.launch(server_name="0.0.0.0", server_port=7860)
+demo.launch(server_name="0.0.0.0", server_port=7860, css=DARK_CSS, theme=gr.themes.Base())
