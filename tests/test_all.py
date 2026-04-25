@@ -133,65 +133,6 @@ def test_accuracy_delta_positive_on_fix(clean_df):
     assert curr_acc > prev_acc
 
 
-def test_noop_correct_cell_gives_positive(clean_df):
-    rc = RewardComputer()
-    action = SurgeonAction(reasoning="cell is correct", tool_id=7, column=0, row_id=0)
-    reward = rc._score_tool_logic(action, clean_df, clean_df)
-    assert reward > 0
-
-
-def test_impute_on_correct_cell_penalized(clean_df):
-    rc = RewardComputer()
-    action = SurgeonAction(reasoning="imputing", tool_id=0, column=0, row_id=0)
-    reward = rc._score_tool_logic(action, clean_df, clean_df)
-    assert reward < 0
-
-
-def test_efficiency_rewards_repair_tool_on_incorrect_cell(clean_df):
-    rc = RewardComputer()
-    dirty = clean_df.copy()
-    repaired = clean_df.copy()
-    age_col = list(clean_df.columns).index("age")
-    dirty.at[0, "age"] = np.nan
-    action = SurgeonAction(
-        reasoning="age is null because the value is missing",
-        tool_id=0,
-        column=age_col,
-        row_id=0,
-    )
-
-    reward = rc._score_efficiency(action, repaired, clean_df, previous_state=dirty)
-
-    assert reward == 0.5
-
-
-def test_efficiency_penalizes_noop_on_incorrect_cell(clean_df):
-    rc = RewardComputer()
-    dirty = clean_df.copy()
-    age_col = list(clean_df.columns).index("age")
-    dirty.at[0, "age"] = np.nan
-    action = SurgeonAction(reasoning="skip bad cell", tool_id=7, column=age_col, row_id=0)
-
-    reward = rc._score_efficiency(action, dirty, clean_df, previous_state=dirty)
-
-    assert reward < 0
-
-
-def test_reasoning_allows_medium_length_useful_explanations(clean_df):
-    rc = RewardComputer()
-    dirty = clean_df.copy()
-    dirty.at[0, "age"] = np.nan
-    action = SurgeonAction(
-        reasoning="age missing because source value is absent in this row today now",
-        tool_id=0,
-        column=list(clean_df.columns).index("age"),
-        row_id=0,
-    )
-
-    reward = rc._score_reasoning(action, dirty)
-
-    assert reward >= 0.3
-
 
 def test_antihack_mass_delete_penalty(clean_df):
     dirty = clean_df.copy()

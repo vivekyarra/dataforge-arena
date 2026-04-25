@@ -95,21 +95,45 @@ class Corruptor:
         return self._corrupt_tier3(df)
 
     def _corrupt_tier1(self, df: pd.DataFrame) -> tuple:
-        tool = random.choice(["inject_null_single", "inject_type_error"])
+        tool = random.choice(["inject_null_single", "inject_type_error", "enum_substitution"])
         col = random.choice(df.columns.tolist())
         row = random.randint(0, len(df) - 1)
         original_val = df.at[row, col]
 
         if tool == "inject_null_single":
             df.at[row, col] = np.nan
-        else:
+        elif tool == "inject_type_error":
             df[col] = df[col].astype(object)
             df.at[row, col] = f"ERR_{random.randint(10, 99)}"
+        elif tool == "enum_substitution":
+            enum_options = {
+                "currency": ["CAD", "AUD", "JPY", "CHF", "CNY"],
+                "status": ["processing", "cancelled", "refunded", "unknown"],
+                "category": ["misc", "other", "unknown"],
+            }
+            candidates = [c for c in df.columns if c in enum_options]
+            if not candidates:
+                return self._corrupt_tier1_fallback(df)
+            col = random.choice(candidates)
+            row = random.randint(0, len(df) - 1)
+            original_val = df.at[row, col]
+            df.at[row, col] = random.choice(enum_options[col])
+            return df, {"tool": tool, "col": col, "row": row, "original": original_val}
 
         return df, {"tool": tool, "col": col, "row": row, "original": original_val}
 
+    def _corrupt_tier1_fallback(self, df: pd.DataFrame) -> tuple:
+        col = random.choice(df.columns.tolist())
+        row = random.randint(0, len(df) - 1)
+        original_val = df.at[row, col]
+        df.at[row, col] = np.nan
+        return df, {"tool": "inject_null_single", "col": col, "row": row, "original": original_val}
+
     def _corrupt_tier2(self, df: pd.DataFrame) -> tuple:
-        tool = random.choice(["inject_null_cluster", "swap_date_format", "inject_out_of_range_age"])
+        tool = random.choice([
+            "inject_null_cluster", "swap_date_format", "inject_out_of_range_age",
+            "semantic_temporal_drift", "currency_unit_mismatch",
+        ])
         metadata = {"tool": tool}
 
         if tool == "inject_null_cluster":
@@ -132,12 +156,44 @@ class Corruptor:
                 df.at[row, col] = f"{parts[1]}/{parts[2]}/{parts[0][2:]}"
             metadata.update({"col": col, "row": row})
 
-        else:
+        elif tool == "inject_out_of_range_age":
             if "age" not in df.columns or "birth_year" not in df.columns:
                 return self._corrupt_tier1(df)
             row = random.randint(0, len(df) - 1)
             df.at[row, "age"] = random.randint(130, 180)
             metadata.update({"col": "age", "row": row})
+
+        elif tool == "semantic_temporal_drift":
+            if "age" not in df.columns or "birth_year" not in df.columns:
+                return self._corrupt_tier1(df)
+            row = random.randint(0, len(df) - 1)
+            try:
+                birth_year = int(float(str(df.at[row, "birth_year"])))
+                correct_age = 2024 - birth_year
+                drift = random.randint(18, 30)
+                corrupted_age = min(correct_age + drift, 119)
+                df.at[row, "age"] = corrupted_age
+                metadata.update({"col": "age", "row": row, "original_age": correct_age, "drift": drift})
+            except Exception:
+                return self._corrupt_tier1(df)
+
+        elif tool == "currency_unit_mismatch":
+            if "currency" not in df.columns or "amount" not in df.columns:
+                return self._corrupt_tier1(df)
+            row = random.randint(0, len(df) - 1)
+            try:
+                currency = str(df.at[row, "currency"])
+                amount = float(df.at[row, "amount"])
+                if currency == "INR" and amount < 200:
+                    df.at[row, "amount"] = round(amount * 83.0, 2)
+                    metadata.update({"col": "amount", "row": row, "original": amount})
+                elif currency == "EUR" and amount > 10000:
+                    df.at[row, "amount"] = round(amount / 1.08, 2)
+                    metadata.update({"col": "amount", "row": row, "original": amount})
+                else:
+                    return self._corrupt_tier1(df)
+            except Exception:
+                return self._corrupt_tier1(df)
 
         return df, metadata
 
@@ -185,6 +241,16 @@ class Corruptor:
                 return False, "foreign-key corruption missing repair metadata"
             if col not in dirty_df.columns or paired_col not in dirty_df.columns:
                 return False, "foreign-key corruption missing paired columns"
+
+        if tool == "semantic_temporal_drift":
+            if "age" not in dirty_df.columns or "birth_year" not in dirty_df.columns:
+                return False, "semantic drift requires age+birth_year columns"
+            return True, "ok"
+
+        if tool == "currency_unit_mismatch":
+            if "currency" not in dirty_df.columns or "amount" not in dirty_df.columns:
+                return False, "currency_unit_mismatch requires currency+amount columns"
+            return True, "ok"
 
         for col in dirty_df.columns:
             null_rate = dirty_df[col].isna().mean()
