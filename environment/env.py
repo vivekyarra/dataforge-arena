@@ -80,6 +80,7 @@ class DataForgeEnv(BaseEnv):
 
         self._step_count += 1
         self._action_log.append(action.model_dump())
+        previous_state = self._state.copy(deep=True)
         self._state = apply_tool(self._state, action, self._schema)
 
         reward_dict = self._reward_computer.compute(
@@ -91,6 +92,7 @@ class DataForgeEnv(BaseEnv):
             episode_start=self._episode_start,
             step_count=self._step_count,
             starting_accuracy=self._starting_accuracy,
+            previous_state=previous_state,
         )
 
         if "_current_accuracy" in reward_dict:

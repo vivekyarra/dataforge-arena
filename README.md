@@ -9,7 +9,7 @@ Theme: World Modeling - Multi-App RL Environment for Enterprise Workflows
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compliant-10b981?style=for-the-badge)](https://github.com/huggingface/openenv)
 [![TRL](https://img.shields.io/badge/TRL-GRPO-f59e0b?style=for-the-badge)](https://huggingface.co/docs/trl/main/en/grpo)
-[![Tests](https://img.shields.io/badge/Tests-43_passed-10b981?style=for-the-badge)](./tests/test_all.py)
+[![Tests](https://img.shields.io/badge/Tests-44_passed-10b981?style=for-the-badge)](./tests/test_all.py)
 [![Evidence](https://img.shields.io/badge/Evidence-committed_artifacts-blue?style=for-the-badge)](./eval/results.json)
 
 ---
@@ -37,22 +37,22 @@ This public repo is intentionally honest about evidence. It ships a working envi
 | Heuristic surgeon beats random on committed eval | `+0.53 pp` advantage in accuracy delta | [`eval/results.json`](./eval/results.json) |
 | GRPO curriculum ran through all corruption tiers | observed tiers `1, 2, 3` | [`logs/training_log.csv`](./logs/training_log.csv) |
 | Parser held up during training | mean logged parse success `94.53%` | [`logs/training_log.csv`](./logs/training_log.csv) |
-| Regression suite is green | `43 passed` | `python -m pytest -q` |
+| Regression suite is green | `44 passed` | `python -m pytest -q` |
 
 Important: this repository does **not** currently include a local trained checkpoint at `outputs/dataforge-surgeon`. The demo only exposes `Live GRPO Model` when that checkpoint exists. Until final Colab training artifacts are attached, committed evaluation evidence is explicitly **heuristic**, not trained-checkpoint evaluation.
 
-## Final Submission Numbers To Swap In
+## Final Colab Run Gate
 
-Use this table as the single source of placeholder values to replace after the final Colab run.
+Do not publish final judging materials until the Colab run has produced real values for each artifact below. These are the fields to fill from the final run, not placeholder evidence.
 
-| Placeholder | Replace with |
-|-------------|--------------|
-| `[PLACEHOLDER: final GRPO eval surgeon_avg_accuracy_delta]` | Final checkpoint value from `python eval/evaluate.py --agent-mode grpo --model-path outputs/dataforge-surgeon` |
-| `[PLACEHOLDER: final GRPO eval random_avg_accuracy_delta]` | Matching random baseline from the same run |
-| `[PLACEHOLDER: final GRPO advantage in percentage points]` | `(surgeon_delta - random_delta) * 100` |
-| `[PLACEHOLDER: final training steps]` | Final Colab training step count |
-| `[PLACEHOLDER: final GPU/runtime]` | Colab hardware and wall-clock runtime |
-| `[PLACEHOLDER: final checkpoint or Hub URL]` | Published model artifact or uploaded checkpoint path |
+| Required final artifact | Source |
+|-------------------------|--------|
+| GRPO surgeon avg accuracy delta | `python eval/evaluate.py --agent-mode grpo --model-path outputs/dataforge-surgeon` |
+| Matching random avg accuracy delta | same evaluation run |
+| GRPO advantage in percentage points | `(surgeon_delta - random_delta) * 100` |
+| Training step count | final row in `logs/training_log.csv` |
+| GPU and wall-clock runtime | Colab runtime plus notebook output |
+| Checkpoint or Hub URL | `outputs/dataforge-surgeon` zip or uploaded model artifact |
 
 ## Evidence Snapshot
 
@@ -89,7 +89,7 @@ flowchart LR
         O["Structured Observation\nschema, sample rows, error summary"]
         A["Surgeon Policy\nheuristic or GRPO checkpoint"]
         T["Repair Tool Space\nimpute, correct, flag, delete"]
-        R["Reward Computer\naccuracy_delta + safety heuristics"]
+        R["Reward Computer\naccuracy_delta + efficiency + safety"]
         C --> E
         E --> O
         O --> A
@@ -132,6 +132,8 @@ python eval/evaluate.py --agent-mode heuristic --episodes 20 --tier 1 --steps 5 
 python demo/app.py
 ```
 
+For Colab GPU training, use [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb). Its setup cell pins the Unsloth-compatible stack: `torch==2.10.0+cu128`, `trl==0.24.0`, `unsloth==2026.4.8`, `torchao==0.16.0`, `llm-blender==0.0.2`, and `weave==0.52.37`, then imports `GRPOTrainer` as a preflight check before training begins.
+
 After training and saving a checkpoint to `outputs/dataforge-surgeon`:
 
 ```bash
@@ -170,6 +172,7 @@ class DataForgeEnv(BaseEnv):
 - [`demo/`](./demo): judge-facing Gradio demo with provenance-aware execution modes
 - [`tests/`](./tests): regression tests for parser, corruptor, environment, validation, and evidence boundaries
 - [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb): notebook path for final training and artifact export
+- [`pitch_script.md`](./pitch_script.md): three-minute judge narration with a demo moment
 
 ## Links
 
@@ -177,6 +180,7 @@ class DataForgeEnv(BaseEnv):
 |----------|-----|
 | Live HF Space | https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env |
 | Colab Notebook | [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb) |
+| Judge Pitch Script | [`pitch_script.md`](./pitch_script.md) |
 | HF Blog Post | https://huggingface.co/blog/Vivek567/dataforge-arena |
 | GitHub | https://github.com/vivekyarra/dataforge-arena |
 

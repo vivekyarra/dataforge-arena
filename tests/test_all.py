@@ -118,6 +118,24 @@ def test_impute_on_correct_cell_penalized(clean_df):
     assert reward < 0
 
 
+def test_efficiency_rewards_repair_tool_on_incorrect_cell(clean_df):
+    rc = RewardComputer()
+    dirty = clean_df.copy()
+    repaired = clean_df.copy()
+    age_col = list(clean_df.columns).index("age")
+    dirty.at[0, "age"] = np.nan
+    action = SurgeonAction(
+        reasoning="age is null because the value is missing",
+        tool_id=0,
+        column=age_col,
+        row_id=0,
+    )
+
+    reward = rc._score_efficiency(action, repaired, clean_df, previous_state=dirty)
+
+    assert reward == 0.5
+
+
 def test_antihack_mass_delete_penalty(clean_df):
     dirty = clean_df.copy()
     dirty["_is_deleted"] = True

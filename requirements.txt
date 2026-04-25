@@ -1,11 +1,14 @@
 # Core RL & Training
-torch>=2.2.0
-unsloth>=2024.4
-trl>=0.8.6
+torch>=2.10.0,<2.11.0
+unsloth==2026.4.8
+trl==0.24.0
 transformers>=4.40.0
 datasets>=2.19.0
 accelerate>=0.29.0
 bitsandbytes>=0.43.0
+torchao==0.16.0
+llm-blender==0.0.2
+weave==0.52.37
 
 # OpenEnv (non-negotiable for hackathon)
 openenv>=0.1.0

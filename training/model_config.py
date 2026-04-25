@@ -47,7 +47,7 @@ def select_model(gpu_info: dict) -> dict:
             "max_seq_length": 2048,
             "num_generations": 8,
             "batch_size": 1,
-            "grad_accum": 4,
+            "grad_accum": 8,
             "target_steps": 150,
             "label": "Llama 3.1 8B (full power)",
         }
@@ -58,7 +58,7 @@ def select_model(gpu_info: dict) -> dict:
             "max_seq_length": 2048,
             "num_generations": 6,
             "batch_size": 1,
-            "grad_accum": 4,
+            "grad_accum": 6,
             "target_steps": 100,
             "label": "Llama 3.2 3B (balanced)",
         }
@@ -69,7 +69,7 @@ def select_model(gpu_info: dict) -> dict:
             "max_seq_length": 2048,
             "num_generations": 4,
             "batch_size": 1,
-            "grad_accum": 2,
+            "grad_accum": 4,
             "target_steps": 80,
             "label": "Qwen 2.5 1.5B (speed mode)",
         }

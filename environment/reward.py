@@ -9,7 +9,8 @@ class RewardComputer:
     def compute(self, state: pd.DataFrame, ground_truth: pd.DataFrame,
                 action, original_dirty: pd.DataFrame,
                 prev_accuracy: float, episode_start: float,
-                step_count: int, starting_accuracy: float = None) -> dict:
+                step_count: int, starting_accuracy: float = None,
+                previous_state: pd.DataFrame = None) -> dict:
         
         rewards = {}
         
@@ -32,8 +33,13 @@ class RewardComputer:
         # R3: REASONING QUALITY -- keyword heuristic, no LLM
         rewards["reasoning"] = self._score_reasoning(action, state)
 
-        # R4: EFFICIENCY -- penalize WRONG actions, not all actions
-        rewards["efficiency"] = self._score_efficiency(action, state, ground_truth)
+        # R4: EFFICIENCY -- reward good repair targets, penalize wrong actions
+        rewards["efficiency"] = self._score_efficiency(
+            action,
+            state,
+            ground_truth,
+            previous_state=previous_state,
+        )
 
         # R5: ANTI-HACK -- soft-delete rate check
         rewards["anti_hack"] = self._detect_shortcuts(state, original_dirty)
@@ -185,28 +191,43 @@ class RewardComputer:
         
         return bonus
 
-    def _score_efficiency(self, action, state, ground_truth) -> float:
+    def _score_efficiency(self, action, state, ground_truth, previous_state=None) -> float:
         """
-        Penalize wrong actions, NOT all actions.
-        Key insight: agent must be incentivized to TRY things.
-        Wrong action = -1. Right action direction = 0 (outcome handles it).
+        Reward repair attempts on bad targets and penalize edits to good cells.
+        Accuracy delta still scores the outcome; this only shapes target choice.
         """
+        target_state = previous_state if previous_state is not None else state
+        tool_name = SURGEON_TOOLS[action.tool_id]["name"]
+
         try:
             if action.row_id >= len(ground_truth):
-                return 0.0  # extra row from duplicate -- no penalty for acting on it
-            cell_val = state.iloc[action.row_id, action.column]
+                return 0.5 if tool_name in ("DELETE_ROW", "MERGE_DUPLICATE") else 0.0
+            cell_val = target_state.iloc[action.row_id, action.column]
             gt_val = ground_truth.iloc[action.row_id, action.column]
-            is_correct = (cell_val == gt_val) and pd.notna(cell_val)
+            is_correct = self._values_match(cell_val, gt_val)
         except IndexError:
             return -0.5
-        
-        tool_name = SURGEON_TOOLS[action.tool_id]["name"]
-        
+
         # Penalize modifying a correct cell
         if is_correct and tool_name not in ("NO_OP", "FLAG_UNCERTAIN"):
             return -1.0
-        
+
+        repair_tools = ("IMPUTE_MEDIAN", "IMPUTE_MODE", "IMPUTE_FORWARD_FILL", "CORRECT_FORMAT")
+        if not is_correct and tool_name in repair_tools:
+            return 0.5
+
         return 0.0
+
+    @staticmethod
+    def _values_match(cell_val, gt_val) -> bool:
+        if pd.isna(cell_val) and pd.isna(gt_val):
+            return True
+        if pd.isna(cell_val) or pd.isna(gt_val):
+            return False
+        try:
+            return bool(cell_val == gt_val)
+        except Exception:
+            return str(cell_val) == str(gt_val)
 
     def _detect_shortcuts(self, state, original_dirty) -> float:
         """

@@ -45,7 +45,7 @@ That gives the agent a real feedback loop:
 
 The training path uses TRL GRPO to optimize a language-model surgeon over structured repair actions. The prompt asks for valid JSON only, the parser hardens the boundary between generated text and environment actions, and the reward loop evaluates the actual outcome of each tool call.
 
-The intent is not to reward fluent explanations. The intent is to reward a policy that learns the mechanics of a small enterprise data world.
+The intent is not to reward fluent explanations. The efficiency term now adds a small positive signal when a repair tool targets an actually incorrect cell, so target selection is tied to fixing data rather than writing persuasive reasoning.
 
 ## What the public repo proves today
 
@@ -60,22 +60,22 @@ This repo is evidence-first. The current committed artifacts show:
 | Heuristic advantage | `+0.0053` (`+0.53 pp`) |
 | Logged GRPO curriculum tiers | `1, 2, 3` |
 | Mean logged parse success | `94.53%` |
-| Test suite | `43 passed` via `python -m pytest -q` |
+| Test suite | `44 passed` via `python -m pytest -q` |
 
 One important note: the public repo does not currently ship a local trained checkpoint at `outputs/dataforge-surgeon`. Because of that, the committed evaluation artifact is explicitly heuristic evidence. The demo and evaluation harness expose live GRPO mode only when that checkpoint exists locally.
 
-## Final Colab placeholders
+## Final Colab evidence gate
 
-Before publishing the final submission, replace these placeholders with the final training numbers:
+Before publishing the final submission, this draft needs real values from the final Colab run:
 
-| Placeholder | Replace with |
-|-------------|--------------|
-| `[PLACEHOLDER: final GRPO eval surgeon_avg_accuracy_delta]` | Final trained-checkpoint evaluation value |
-| `[PLACEHOLDER: final GRPO eval random_avg_accuracy_delta]` | Random baseline from the same run |
-| `[PLACEHOLDER: final GRPO advantage in percentage points]` | Final trained-checkpoint advantage |
-| `[PLACEHOLDER: final training steps]` | Final Colab step count |
-| `[PLACEHOLDER: final GPU/runtime]` | Hardware and wall-clock runtime |
-| `[PLACEHOLDER: final checkpoint or Hub URL]` | Published checkpoint or artifact link |
+| Required final artifact | Source |
+|-------------------------|--------|
+| GRPO surgeon avg accuracy delta | trained-checkpoint evaluation |
+| Matching random avg accuracy delta | same evaluation run |
+| GRPO advantage in percentage points | trained checkpoint minus random baseline |
+| Training step count | final Colab log row |
+| GPU and wall-clock runtime | Colab runtime output |
+| Checkpoint or Hub URL | saved checkpoint artifact |
 
 ## The demo experience
 
