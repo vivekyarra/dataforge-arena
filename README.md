@@ -9,7 +9,7 @@ Theme: World Modeling - Multi-App RL Environment for Enterprise Workflows
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compliant-10b981?style=for-the-badge)](https://github.com/huggingface/openenv)
 [![TRL](https://img.shields.io/badge/TRL-GRPO-f59e0b?style=for-the-badge)](https://huggingface.co/docs/trl/main/en/grpo)
-[![Tests](https://img.shields.io/badge/Tests-50_passed-10b981?style=for-the-badge)](./tests/test_all.py)
+[![Tests](https://img.shields.io/badge/Tests-51_passed-10b981?style=for-the-badge)](./tests/test_all.py)
 [![Evidence](https://img.shields.io/badge/Evidence-committed_artifacts-blue?style=for-the-badge)](./eval/results.json)
 
 ---
@@ -34,38 +34,44 @@ This public repo is intentionally honest about evidence. It ships a working envi
 |------|------------------|--------|
 | OpenEnv-compatible environment and API | `reset`, `step`, `/health`, `/info`, `/docs` | [`environment/`](./environment), [`environment/server.py`](./environment/server.py) |
 | Judge-facing demo with session isolation | Gradio `gr.State()` per session and guarded model loading | [`demo/app.py`](./demo/app.py) |
-| Heuristic surgeon beats random on committed eval | `+0.53 pp` advantage in accuracy delta | [`eval/results.json`](./eval/results.json) |
-| GRPO curriculum ran through all corruption tiers | observed tiers `1, 2, 3` | [`logs/training_log.csv`](./logs/training_log.csv) |
-| Parser held up during training | mean logged parse success `94.53%` | [`logs/training_log.csv`](./logs/training_log.csv) |
-| Regression suite is green | `50 passed` | `python -m pytest -q` |
+| Heuristic surgeon beats random on baseline eval | `+0.53 pp` advantage in accuracy delta | [`eval/heuristic_results.json`](./eval/heuristic_results.json) |
+| Trained GRPO checkpoint is less destructive than random | `+0.41 pp` advantage in accuracy delta | [`eval/results.json`](./eval/results.json) |
+| T4 GRPO proof run completed | Tesla T4, target `80` steps, last logged step `75` | [`logs/training_log.csv`](./logs/training_log.csv), [`logs/training_curve.png`](./logs/training_curve.png) |
+| Parser improved during the short run | parse success `25% -> 50%`, mean `40.00%` | [`logs/training_log.csv`](./logs/training_log.csv) |
+| Regression suite is green | `51 passed` | `python -m pytest -q` |
 
-Important: this repository does **not** currently include a local trained checkpoint at `outputs/dataforge-surgeon`. The demo only exposes `Live GRPO Model` when that checkpoint exists. Until final Colab training artifacts are attached, committed evaluation evidence is explicitly **heuristic**, not trained-checkpoint evaluation.
+Important: the trained checkpoint directory itself is not committed because `outputs/` is intentionally ignored. The committed GRPO evidence comes from the Colab-produced checkpoint at `outputs/dataforge-surgeon`; the demo exposes `Live GRPO Model` only when that checkpoint exists locally.
 
-## Final Colab Run Gate
+## Final Colab Evidence
 
-Do not publish final judging materials until the Colab run has produced real values for each artifact below. These are the fields to fill from the final run, not placeholder evidence.
+These values come from the final Tesla T4 Colab run and should be treated as evidence, not marketing numbers.
 
-| Required final artifact | Source |
-|-------------------------|--------|
-| GRPO surgeon avg accuracy delta | `python eval/evaluate.py --agent-mode grpo --model-path outputs/dataforge-surgeon` |
-| Matching random avg accuracy delta | same evaluation run |
-| GRPO advantage in percentage points | `(surgeon_delta - random_delta) * 100` |
-| Training step count | final row in `logs/training_log.csv` |
-| GPU and wall-clock runtime | Colab runtime plus notebook output |
-| Checkpoint or Hub URL | `outputs/dataforge-surgeon` zip or uploaded model artifact |
+| Artifact | Value |
+|----------|-------|
+| GPU | Tesla T4 |
+| Training target / final logged step | `80` target steps / last logged step `75` |
+| First -> final logged reward | `-1.4000 -> -1.4000` |
+| Best logged reward | `-0.2000` |
+| Smoothed reward, first 3 rows -> last 3 rows | `-1.2000 -> -1.0000` |
+| Parse success, first -> final | `25% -> 50%` |
+| Mean parse success | `40.00%` |
+| GRPO surgeon avg accuracy delta | `-0.0004` |
+| Random avg accuracy delta | `-0.0045` |
+| GRPO advantage over random | `+0.0041` (`+0.41 pp`) |
 
 ## Evidence Snapshot
 
 | Metric | Current value |
 |--------|---------------|
-| Evaluation mode | `heuristic` |
-| Surgeon avg accuracy delta | `+0.0010` |
-| Random avg accuracy delta | `-0.0043` |
-| Surgeon advantage accuracy delta | `+0.0053` (`+0.53 pp`) |
-| Surgeon win rate | `50.00%` |
+| Evaluation mode | `grpo` |
+| GRPO avg accuracy delta | `-0.0004` |
+| Random avg accuracy delta | `-0.0045` |
+| GRPO advantage accuracy delta | `+0.0041` (`+0.41 pp`) |
+| GRPO win rate | `0.00%` |
 | Random win rate | `0.00%` |
 | Eval seed / tier / episodes | `seed=7`, `tier=1`, `episodes=20` |
-| Logged parse success mean | `94.53%` |
+| Heuristic baseline advantage | `+0.0053` (`+0.53 pp`) |
+| Logged parse success mean | `40.00%` |
 | Difficulty tiers observed | `1, 2, 3` |
 
 ## Why This Is World Modeling
@@ -125,7 +131,7 @@ python training/generate_data.py
 # Verify the environment and contracts
 python -m pytest -q
 
-# Reproduce the committed heuristic evidence
+# Reproduce the committed heuristic baseline evidence
 python eval/evaluate.py --agent-mode heuristic --episodes 20 --tier 1 --steps 5 --seed 7
 
 # Launch the judge-facing demo
@@ -170,9 +176,11 @@ class DataForgeEnv(BaseEnv):
 - [`training/`](./training): GRPO training loop, prompt construction, parser hardening, model selection, and logging
 - [`eval/`](./eval): heuristic vs GRPO evaluation harness and committed evidence artifact
 - [`demo/`](./demo): judge-facing Gradio demo with provenance-aware execution modes
+- [`logs/training_curve.png`](./logs/training_curve.png): final Colab reward curve artifact
 - [`tests/`](./tests): regression tests for parser, corruptor, environment, validation, and evidence boundaries
 - [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb): notebook path for final training and artifact export
 - [`pitch_script.md`](./pitch_script.md): three-minute judge narration with a demo moment
+- [`final_submission_summary.md`](./final_submission_summary.md): concise final evidence and pitch positioning
 
 ## Links
 

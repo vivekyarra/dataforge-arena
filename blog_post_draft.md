@@ -54,28 +54,34 @@ This repo is evidence-first. The current committed artifacts show:
 | Evidence | Current value |
 |----------|---------------|
 | OpenEnv-compatible environment | `reset`, `step`, FastAPI endpoints |
-| Committed evaluation mode | `heuristic` |
+| Committed evaluation mode | `grpo` |
 | Heuristic surgeon avg accuracy delta | `+0.0010` |
-| Random baseline avg accuracy delta | `-0.0043` |
-| Heuristic advantage | `+0.0053` (`+0.53 pp`) |
+| Heuristic advantage over random | `+0.0053` (`+0.53 pp`) |
+| GRPO checkpoint avg accuracy delta | `-0.0004` |
+| Matching random baseline avg accuracy delta | `-0.0045` |
+| GRPO checkpoint advantage | `+0.0041` (`+0.41 pp`) |
 | Logged GRPO curriculum tiers | `1, 2, 3` |
-| Mean logged parse success | `94.53%` |
-| Test suite | `50 passed` via `python -m pytest -q` |
+| Mean logged parse success | `40.00%` |
+| Parse success first to final | `25% -> 50%` |
+| Test suite | `51 passed` via `python -m pytest -q` |
 
-One important note: the public repo does not currently ship a local trained checkpoint at `outputs/dataforge-surgeon`. Because of that, the committed evaluation artifact is explicitly heuristic evidence. The demo and evaluation harness expose live GRPO mode only when that checkpoint exists locally.
+One important note: the public repo does not commit the local checkpoint directory because `outputs/` is ignored. The committed GRPO numbers come from the Colab-trained checkpoint at `outputs/dataforge-surgeon`. The demo and evaluation harness expose live GRPO mode only when that checkpoint exists locally.
 
-## Final Colab evidence gate
+## Final Colab evidence
 
-Before publishing the final submission, this draft needs real values from the final Colab run:
+The final short-run training artifact is honest about both progress and limits:
 
-| Required final artifact | Source |
-|-------------------------|--------|
-| GRPO surgeon avg accuracy delta | trained-checkpoint evaluation |
-| Matching random avg accuracy delta | same evaluation run |
-| GRPO advantage in percentage points | trained checkpoint minus random baseline |
-| Training step count | final Colab log row |
-| GPU and wall-clock runtime | Colab runtime output |
-| Checkpoint or Hub URL | saved checkpoint artifact |
+| Artifact | Value |
+|----------|-------|
+| GPU | Tesla T4 |
+| Training target / final logged step | `80` target steps / last logged step `75` |
+| First -> final logged reward | `-1.4000 -> -1.4000` |
+| Best logged reward | `-0.2000` |
+| Smoothed reward, first 3 rows -> last 3 rows | `-1.2000 -> -1.0000` |
+| Parse success, first -> final | `25% -> 50%` |
+| GRPO advantage over random | `+0.0041` (`+0.41 pp`) |
+
+The trained 1.5B checkpoint does not beat the heuristic surgeon in this short T4 run. The right reading is narrower but still useful: the model learns enough structure to become less destructive than random, while the heuristic surgeon remains the stronger demo policy.
 
 ## The demo experience
 

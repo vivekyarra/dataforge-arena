@@ -386,11 +386,19 @@ def test_eval_prefers_root_adapter_checkpoint(tmp_path):
 
 def test_committed_eval_results_include_provenance():
     payload = json.loads(Path("eval/results.json").read_text(encoding="utf-8"))
+    assert payload["agent_mode"] == "grpo"
+    assert payload["model_source"] == "outputs/dataforge-surgeon"
+    assert payload["fallback_used"] is False
+    assert "surgeon_advantage_accuracy_delta" in payload
+    assert payload["surgeon_advantage_accuracy_delta"] > 0
+
+
+def test_committed_heuristic_baseline_include_provenance():
+    payload = json.loads(Path("eval/heuristic_results.json").read_text(encoding="utf-8"))
     assert payload["agent_mode"] == "heuristic"
     assert payload["model_source"] == "heuristic-rule-based"
     assert payload["fallback_used"] is False
-    assert "surgeon_advantage_accuracy_delta" in payload
-    assert "note" in payload
+    assert payload["surgeon_advantage_accuracy_delta"] > 0
 
 
 def test_server_requirements_cover_demo_entrypoint():

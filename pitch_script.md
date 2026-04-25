@@ -16,7 +16,7 @@ The observation includes the schema, sampled rows, corruption summary, and recen
 
 In the demo, I start with a corrupted table and run the naive baseline first. It picks tools without understanding the cell, so the accuracy delta usually stays flat or gets worse.
 
-Then I run the surgeon path. The UI shows the exact action trace: which row, which column, which tool, the reasoning string, and the reward from the environment. The important number is the before-and-after dataset health. If the repair did not improve the table, the reward shows that.
+Then I run the heuristic surgeon path. The UI shows the exact action trace: which row, which column, which tool, the reasoning string, and the reward from the environment. On the committed baseline eval, this path beats random by `+0.53 pp` accuracy delta.
 
 If a trained checkpoint is present locally, the demo exposes Live GRPO Model. If not, that option stays hidden. The interface is deliberately honest about model provenance.
 
@@ -26,7 +26,7 @@ The reward loop is grounded in state change. The primary signal is `accuracy_del
 
 The key fix before final training is that efficiency now gives a positive signal when a repair tool targets an actually incorrect cell. That prevents the model from learning verbose explanations that are disconnected from repairs.
 
-In the final run, the evidence to show is the training curve: accuracy delta should trend upward after the efficiency fix, and the trained checkpoint should be evaluated against the random baseline with the same harness.
+In the final T4 run, the evidence to show is modest but real: parse success moved from `25%` to `50%`, the best logged reward reached `-0.20`, and the GRPO checkpoint beat random by `+0.41 pp` accuracy delta. The checkpoint does not beat the heuristic yet, so I present it as proof that the RL loop runs and begins shaping behavior, not as a finished production model.
 
 ## 2:30-3:00 - Close
 
