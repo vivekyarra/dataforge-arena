@@ -223,6 +223,12 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
 print("\nStarting GRPO training...")
 print(f"Target: {model_cfg['target_steps']} steps\n")
 
+# TRL GRPOTrainer expects warnings_issued dict on the model object.
+# PEFT wrapping breaks __getattr__ resolution so it raises AttributeError.
+# Patch it directly before trainer init.
+if not hasattr(model, "warnings_issued"):
+    model.warnings_issued = {}
+
 trainer = GRPOTrainer(
     model=model,
     reward_funcs=reward_fn,
