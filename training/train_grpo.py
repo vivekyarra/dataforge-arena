@@ -10,19 +10,21 @@ import time as _time
 import uuid as _uuid
 import warnings
 
+# Unsloth must patch transformers/TRL before they are imported.
+import unsloth  # noqa: F401
+from unsloth import FastLanguageModel
+
 import pandas as pd
 import torch
 from datasets import Dataset
 
 # --- HOTFIX FOR TRL/LLM_BLENDER DEPENDENCY HELL ---
-import os
 import transformers.utils.hub
 if not hasattr(transformers.utils.hub, "TRANSFORMERS_CACHE"):
     transformers.utils.hub.TRANSFORMERS_CACHE = os.getenv("HF_HOME", "/tmp/hf_cache")
 # --------------------------------------------------
 
 from trl import GRPOConfig, GRPOTrainer
-from unsloth import FastLanguageModel
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -33,17 +35,19 @@ from environment.corruptor import Corruptor
 from environment.env import DataForgeEnv
 from environment.schemas import FINANCIAL_SCHEMA, HEALTHCARE_SCHEMA
 from training.logger import TrainingLogger
-from training.model_config import detect_gpu, select_model
+from training.model_config import detect_gpu, select_model, select_precision
 from training.parser import robust_parse_action
 from training.prompt import build_prompt
 
 
 gpu_info = detect_gpu()
 model_cfg = select_model(gpu_info)
+precision_cfg = select_precision(gpu_info)
 print(f"\n{'=' * 50}")
 print(f"GPU:   {gpu_info['type']} ({gpu_info['vram_gb']}GB)")
 print(f"Model: {model_cfg['label']}")
 print(f"Steps: {model_cfg['target_steps']}")
+print(f"Precision: {precision_cfg['label']}")
 print(f"{'=' * 50}\n")
 
 clean_data_hc = pd.read_csv("data/healthcare_clean.csv")
@@ -236,6 +240,8 @@ trainer = GRPOTrainer(
         save_steps=25,
         report_to="none",
         max_steps=model_cfg["target_steps"],
+        bf16=precision_cfg["bf16"],
+        fp16=precision_cfg["fp16"],
     ),
     train_dataset=train_dataset,
 )

@@ -27,10 +27,48 @@ def detect_gpu() -> dict:
         vram_mb = int(line.split(",")[1].strip().split(" ")[0])
         vram_gb = vram_mb / 1024
         
-        return {"type": name, "vram_gb": round(vram_gb, 1)}
+        capability = torch.cuda.get_device_capability(0)
+        return {
+            "type": name,
+            "vram_gb": round(vram_gb, 1),
+            "capability": f"{capability[0]}.{capability[1]}",
+        }
     except Exception:
         vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
-        return {"type": "unknown", "vram_gb": round(vram_gb, 1)}
+        capability = torch.cuda.get_device_capability(0)
+        return {
+            "type": "unknown",
+            "vram_gb": round(vram_gb, 1),
+            "capability": f"{capability[0]}.{capability[1]}",
+        }
+
+
+def select_precision(gpu_info: dict) -> dict:
+    """Select a TrainingArguments precision mode that the detected GPU supports."""
+    if gpu_info.get("vram_gb", 0) <= 0:
+        return {"bf16": False, "fp16": False, "label": "fp32-cpu"}
+
+    capability = gpu_info.get("capability")
+    if capability is not None:
+        try:
+            major = int(str(capability).split(".")[0])
+            use_bf16 = major >= 8
+            return {
+                "bf16": use_bf16,
+                "fp16": not use_bf16,
+                "label": "bf16" if use_bf16 else "fp16",
+            }
+        except (TypeError, ValueError):
+            pass
+
+    gpu_name = str(gpu_info.get("type", "")).lower()
+    bf16_name_markers = ("a100", "h100", "h200", "l4", "l40", "rtx 30", "rtx 40", "rtx 50")
+    use_bf16 = any(marker in gpu_name for marker in bf16_name_markers)
+    return {
+        "bf16": use_bf16,
+        "fp16": not use_bf16,
+        "label": "bf16" if use_bf16 else "fp16",
+    }
 
 
 def select_model(gpu_info: dict) -> dict:
@@ -78,8 +116,10 @@ def select_model(gpu_info: dict) -> dict:
 if __name__ == "__main__":
     gpu = detect_gpu()
     model = select_model(gpu)
+    precision = select_precision(gpu)
     print(f"\nGPU detected: {gpu['type']} ({gpu['vram_gb']}GB VRAM)")
     print(f"Selected model: {model['label']}")
     print(f"Model ID: {model['model_name']}")
     print(f"Target steps: {model['target_steps']}")
     print(f"Rollouts (G): {model['num_generations']}")
+    print(f"Precision: {precision['label']}")

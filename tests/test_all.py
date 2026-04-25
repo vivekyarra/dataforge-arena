@@ -307,6 +307,22 @@ def test_model_selection_l40():
     assert "3B" in cfg["model_name"]
 
 
+def test_precision_selection_t4_uses_fp16():
+    from training.model_config import select_precision
+
+    cfg = select_precision({"type": "Tesla T4", "vram_gb": 15, "capability": "7.5"})
+    assert cfg["fp16"] is True
+    assert cfg["bf16"] is False
+
+
+def test_precision_selection_a100_uses_bf16():
+    from training.model_config import select_precision
+
+    cfg = select_precision({"type": "A100", "vram_gb": 40, "capability": "8.0"})
+    assert cfg["bf16"] is True
+    assert cfg["fp16"] is False
+
+
 def test_eval_resolve_heuristic_agent():
     from eval.evaluate import resolve_eval_agent
 
