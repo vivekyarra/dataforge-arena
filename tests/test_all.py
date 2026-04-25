@@ -136,6 +136,18 @@ def test_efficiency_rewards_repair_tool_on_incorrect_cell(clean_df):
     assert reward == 0.5
 
 
+def test_efficiency_penalizes_noop_on_incorrect_cell(clean_df):
+    rc = RewardComputer()
+    dirty = clean_df.copy()
+    age_col = list(clean_df.columns).index("age")
+    dirty.at[0, "age"] = np.nan
+    action = SurgeonAction(reasoning="skip bad cell", tool_id=7, column=age_col, row_id=0)
+
+    reward = rc._score_efficiency(action, dirty, clean_df, previous_state=dirty)
+
+    assert reward < 0
+
+
 def test_antihack_mass_delete_penalty(clean_df):
     dirty = clean_df.copy()
     dirty["_is_deleted"] = True
@@ -230,6 +242,11 @@ def test_parser_clamps_negative_tool_id():
     assert action.tool_id == 0
 
 
+def test_parser_strict_mode_rejects_missing_fields():
+    with pytest.raises(ValueError):
+        robust_parse_action('{"reasoning":"test"}', require_fields=True)
+
+
 def test_nan_serialization(env):
     obs = env.reset()
     parsed = json.loads(obs.rows_json)
@@ -291,6 +308,8 @@ def test_model_selection_t4():
 
     cfg = select_model({"type": "T4", "vram_gb": 15})
     assert "1.5B" in cfg["model_name"] or "Qwen" in cfg["model_name"]
+    assert cfg["max_completion_length"] <= 96
+    assert cfg["max_training_tier"] == 2
 
 
 def test_model_selection_a100():

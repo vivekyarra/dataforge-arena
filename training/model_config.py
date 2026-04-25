@@ -87,6 +87,10 @@ def select_model(gpu_info: dict) -> dict:
             "batch_size": 1,
             "grad_accum": 8,
             "target_steps": 150,
+            "dataset_size": 500,
+            "max_completion_length": 128,
+            "temperature": 0.5,
+            "max_training_tier": 3,
             "label": "Llama 3.1 8B (full power)",
         }
     
@@ -98,6 +102,10 @@ def select_model(gpu_info: dict) -> dict:
             "batch_size": 1,
             "grad_accum": 6,
             "target_steps": 100,
+            "dataset_size": 400,
+            "max_completion_length": 112,
+            "temperature": 0.45,
+            "max_training_tier": 3,
             "label": "Llama 3.2 3B (balanced)",
         }
     
@@ -109,6 +117,10 @@ def select_model(gpu_info: dict) -> dict:
             "batch_size": 1,
             "grad_accum": 4,
             "target_steps": 80,
+            "dataset_size": 320,
+            "max_completion_length": 96,
+            "temperature": 0.35,
+            "max_training_tier": 2,
             "label": "Qwen 2.5 1.5B (speed mode)",
         }
 

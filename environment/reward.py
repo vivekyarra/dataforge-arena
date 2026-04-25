@@ -215,6 +215,8 @@ class RewardComputer:
         repair_tools = ("IMPUTE_MEDIAN", "IMPUTE_MODE", "IMPUTE_FORWARD_FILL", "CORRECT_FORMAT")
         if not is_correct and tool_name in repair_tools:
             return 0.5
+        if not is_correct and tool_name == "NO_OP":
+            return -0.75
 
         return 0.0
 

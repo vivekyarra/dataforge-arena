@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic")
+warnings.filterwarnings("ignore", message=r"Both `max_new_tokens`.*", category=UserWarning)
 
 from environment.corruptor import Corruptor
 from environment.env import DataForgeEnv
@@ -80,6 +81,8 @@ _EPISODE_KEY_RE = _re.compile(r"EPISODE_CACHE_KEY:\s*([0-9a-f]{32})")
 
 def _tier_for_example(index: int, total_examples: int) -> int:
     progress = index / max(total_examples - 1, 1)
+    if model_cfg.get("max_training_tier", 3) <= 2:
+        return 1 if progress < 0.75 else 2
     if progress < 0.60:
         return 1
     if progress < 0.85:
@@ -88,7 +91,7 @@ def _tier_for_example(index: int, total_examples: int) -> int:
 
 
 def _attach_episode_key(prompt: str, episode_key: str) -> str:
-    return f"{prompt}\nEPISODE_CACHE_KEY: {episode_key}"
+    return f"EPISODE_CACHE_KEY: {episode_key}\n{prompt}"
 
 
 def _prompt_to_text(prompt) -> str:
@@ -134,7 +137,7 @@ def build_dataset(n=200) -> Dataset:
 
 
 print("Building training dataset...")
-train_dataset = build_dataset(400)
+train_dataset = build_dataset(model_cfg.get("dataset_size", 400))
 
 current_step = [0]
 parse_successes = [0]
@@ -179,7 +182,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         batch_difficulties.append(episode["difficulty"])
 
         try:
-            action = robust_parse_action(completion)
+            action = robust_parse_action(completion, require_fields=True)
             parse_successes[0] += 1
         except ValueError:
             rewards.append(-2.0)
@@ -235,8 +238,8 @@ trainer = GRPOTrainer(
     args=GRPOConfig(
         output_dir="outputs/dataforge-surgeon",
         num_generations=model_cfg["num_generations"],
-        max_completion_length=256,
-        temperature=0.9,
+        max_completion_length=model_cfg.get("max_completion_length", 128),
+        temperature=model_cfg.get("temperature", 0.5),
         beta=0.01,
         learning_rate=1e-5,
         per_device_train_batch_size=model_cfg["batch_size"],

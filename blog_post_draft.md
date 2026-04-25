@@ -60,7 +60,7 @@ This repo is evidence-first. The current committed artifacts show:
 | Heuristic advantage | `+0.0053` (`+0.53 pp`) |
 | Logged GRPO curriculum tiers | `1, 2, 3` |
 | Mean logged parse success | `94.53%` |
-| Test suite | `46 passed` via `python -m pytest -q` |
+| Test suite | `48 passed` via `python -m pytest -q` |
 
 One important note: the public repo does not currently ship a local trained checkpoint at `outputs/dataforge-surgeon`. Because of that, the committed evaluation artifact is explicitly heuristic evidence. The demo and evaluation harness expose live GRPO mode only when that checkpoint exists locally.
 

@@ -69,7 +69,16 @@ def _extract_balanced_json_object(text: str) -> str | None:
     return None
 
 
-def robust_parse_action(completion) -> SurgeonAction:
+REQUIRED_ACTION_FIELDS = {"reasoning", "tool_id", "column", "row_id"}
+
+
+def _validate_required_fields(parsed: dict, require_fields: bool):
+    if require_fields and not REQUIRED_ACTION_FIELDS.issubset(parsed):
+        missing = ", ".join(sorted(REQUIRED_ACTION_FIELDS - set(parsed)))
+        raise ValueError(f"missing required action fields: {missing}")
+
+
+def robust_parse_action(completion, require_fields: bool = False) -> SurgeonAction:
     """
     Never crash on malformed model output.
     Try 3 strategies before giving up.
@@ -82,6 +91,7 @@ def robust_parse_action(completion) -> SurgeonAction:
         parsed = json.loads(text)
         if not isinstance(parsed, dict):
             raise ValueError("expected object")
+        _validate_required_fields(parsed, require_fields)
         return _clamp_action(
             str(parsed.get("reasoning", "")),
             parsed.get("tool_id", 7),
@@ -101,6 +111,7 @@ def robust_parse_action(completion) -> SurgeonAction:
             parsed = json.loads(candidate)
             if not isinstance(parsed, dict):
                 raise ValueError("expected object")
+            _validate_required_fields(parsed, require_fields)
             return _clamp_action(
                 str(parsed.get("reasoning", "")),
                 parsed.get("tool_id", 7),
