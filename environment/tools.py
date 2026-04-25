@@ -43,9 +43,9 @@ def apply_tool(state: pd.DataFrame, action, schema: dict) -> pd.DataFrame:
     elif tool_name == "IMPUTE_MODE":
         col_data = state[col_name].dropna()
         if len(col_data) > 0:
-            mode = col_data.mode()
-            if len(mode) > 0:
-                state.at[state.index[row], col_name] = mode.iloc[0]
+            counts = col_data.value_counts()
+            if len(counts) > 0:
+                state.at[state.index[row], col_name] = counts.index[0]
 
     elif tool_name == "IMPUTE_FORWARD_FILL":
         prev_val = _previous_active_value(state, row, col_name)
