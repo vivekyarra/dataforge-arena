@@ -84,15 +84,15 @@ flowchart LR
 
 | Metric | Value |
 |--------|-------|
-| **Reward at step 0** | **-1.85** |
-| **Reward at step 80** | **+1.18** |
-| **Total improvement** | **+3.03 (+164%)** |
-| **JSON parse success rate** | **97.5%** (39/40 by step 50) |
+| **Reward at step 0** | **+0.97** |
+| **Reward at step 75** | **+0.98** |
+| **Difficulty progression** | **Tier 1 → Tier 2 → Tier 3** (DDA unlocked all 3 tiers) |
+| **JSON parse success rate** | **93%** average across 75-step run |
 | **Format error elimination** | **100%** (CORRECT_FORMAT tool) |
-| **Surgeon vs random advantage** | **+0.037 accuracy delta** |
+| **Heuristic surgeon vs random** | **+0.037 accuracy delta advantage** |
 | **Test suite** | **28/28 passing** |
 
-> The 97.5% JSON parse success rate is the most significant signal. Under RL pressure the model is simultaneously learning *what to do* AND *how to format its output*. Maintaining near-perfect structured output by step 50 means the policy is genuinely converging.
+> **Note on training signal:** The first training run used `accuracy_absolute` which inflated rewards and masked the learning signal. This has been fixed — `accuracy_absolute` has been removed and the reward now relies purely on `accuracy_delta * 20`, providing a clean gradient for the next training run.
 
 ---
 

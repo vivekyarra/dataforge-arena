@@ -56,12 +56,12 @@ We evaluate success in enterprise value, not just abstract reward points. Over a
 
 | Metric | Performance |
 |--------|-------------|
-| **Reward improvement** | **-1.85 → +1.18 (+164%)** over 80 steps |
+| **Difficulty progression** | **Tier 1 → 2 → 3** (DDA unlocked all tiers over 75 steps) |
 | **Format error elimination** | **100%** (CORRECT_FORMAT exact restoration) |
-| **JSON Parse Reliability** | 97.5% success rate via robust 3-strategy fallback parsing |
+| **JSON Parse Reliability** | 93% success rate via robust 3-strategy fallback parsing |
 | **Test Suite Stability** | 28/28 Unit & Integration tests passing (100% Coverage) |
 
-The 97.5% JSON parse success rate is our most significant signal. Under RL pressure, the model is simultaneously learning *what to do* AND *how to perfectly format its output*.
+The 93% JSON parse success rate is our most significant signal. Under RL pressure, the model is simultaneously learning *what to do* AND *how to perfectly format its output*.
 
 ## Try the Live Inference Demo
 

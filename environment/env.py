@@ -123,6 +123,9 @@ class DataForgeEnv(BaseEnv):
             self._corruptor.record_episode(sum(self._episode_rewards))
         
         total_reward = float(reward_dict.pop("total", 0.0))
+        # Clean control signals from reward components
+        reward_dict.pop("episode_complete", None)
+        reward_dict.pop("timeout", None)
         
         return self._make_observation(), total_reward, done, {
             "action_log": self._action_log,

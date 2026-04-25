@@ -58,74 +58,95 @@ model = FastLanguageModel.get_peft_model(
 )
 
 # -- Step 4: Build training dataset --------------------------------
+# CRITICAL FIX: Cache full episode state per prompt so reward_fn evaluates
+# the model's action on the SAME corrupted data it saw, not a random new one.
+import time as _time
+import random as _random
+episode_cache = {}  # prompt_hash -> episode state
+
 def build_dataset(n=200) -> Dataset:
     prompts = []
-    import random
     for _ in range(n):
-        if random.random() < 0.5:
+        if _random.random() < 0.5:
             env._schema = HEALTHCARE_SCHEMA
             env._clean_data = clean_data_hc
         else:
             env._schema = FINANCIAL_SCHEMA
             env._clean_data = clean_data_fin
         obs = env.reset()
-        prompts.append({"prompt": build_prompt(obs)})
+        prompt = build_prompt(obs)
+        # Cache the episode state so reward_fn can restore it
+        episode_cache[hash(prompt)] = {
+            "state": env._state.copy(),
+            "gt": env._ground_truth.copy(),
+            "original_dirty": env._original_dirty.copy(),
+            "prev_accuracy": env._prev_accuracy,
+            "starting_accuracy": env._starting_accuracy,
+            "schema": env._schema,
+        }
+        prompts.append({"prompt": prompt})
     return Dataset.from_list(prompts)
 
 print("Building training dataset...")
 train_dataset = build_dataset(200)
 
-# -- Step 5: Reward function with dynamic KL beta -------------------
+# -- Step 5: Reward function ----------------------------------------
 current_step = [0]  # mutable for closure
 parse_successes = [0]
 total_rollouts = [0]
 
 def reward_fn(completions: list, prompts: list, **kwargs) -> list:
     """
-    BUG 2 FIX: Each completion gets its own env.reset() so all G rollouts
-    are evaluated independently on fresh state. Previously completion #2
-    saw the state after completion #1 already modified it.
+    Evaluate each completion by restoring the EXACT episode state from
+    the prompt's cached data. This ensures the model is rewarded for
+    actions on the same corrupted data it saw in its prompt.
     """
     rewards = []
     component_accum = {
-        "accuracy_delta": [], "tool_logic": [], 
+        "accuracy_delta": [], "tool_logic": [],
         "reasoning": [], "efficiency": [], "anti_hack": []
     }
-    
-    for completion in completions:
-        total_rollouts[0] += 1
-        
-        # 50/50 Multi-Schema Flip
-        import random
-        if random.random() < 0.5:
-            env._schema = HEALTHCARE_SCHEMA
-            env._clean_data = clean_data_hc
-        else:
-            env._schema = FINANCIAL_SCHEMA
-            env._clean_data = clean_data_fin
 
-        # CRITICAL: independent reset per completion
-        obs = env.reset()
+    for i, completion in enumerate(completions):
+        total_rollouts[0] += 1
+
+        # Restore the cached episode state matching this prompt
+        prompt = prompts[i] if i < len(prompts) else ""
+        prompt_key = hash(prompt)
+        ep = episode_cache.get(prompt_key)
+
+        if ep is not None:
+            env._state = ep["state"].copy()
+            env._ground_truth = ep["gt"].copy()
+            env._original_dirty = ep["original_dirty"].copy()
+            env._prev_accuracy = ep["prev_accuracy"]
+            env._starting_accuracy = ep["starting_accuracy"]
+            env._schema = ep["schema"]
+            env._step_count = 0
+            env._action_log = []
+            env._episode_rewards = []
+            env._episode_start = _time.time()
+        else:
+            env.reset()
+
         try:
             action = robust_parse_action(completion)
             parse_successes[0] += 1
         except ValueError:
             rewards.append(-2.0)
             continue
-        
+
         _, reward, done, info = env.step(action)
-        
-        # Log action for collapse detection
+
         recent_actions.append(action.model_dump())
         if len(recent_actions) > 100:
             recent_actions.pop(0)
-        
-        
+
         for k in component_accum:
             component_accum[k].append(info.get("reward_components", {}).get(k, 0))
-            
+
         rewards.append(reward)
-    
+
     # Advance corruptor epoch every training step
     corruptor.record_episode(sum(rewards) / max(len(rewards), 1))
     
