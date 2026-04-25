@@ -212,13 +212,13 @@ def _contextual_reward_shaping(action, episode: dict, parse_mode: str) -> float:
     row_suspects = episode.get("suspect_column_indices", {}).get(int(action.row_id), [])
     if row_suspects and action.tool_id != 7:
         if int(action.column) in row_suspects:
-            shaping += 0.55  # targeting the right column
+            shaping += 1.25  # MASSIVE reward for targeting the exactly correct cell
         else:
-            shaping -= 0.35  # wrong column in a suspect row
+            shaping -= 0.50  # wrong column in a suspect row
     elif total_errors > 0 and action.tool_id != 7:
         known_rows = episode.get("suspect_column_indices", {})
         if known_rows and int(action.row_id) not in known_rows:
-            shaping -= 0.35  # targeting a non-suspect row
+            shaping -= 0.75  # HEAVY penalty for targeting a clean, non-suspect row
 
     if total_errors == 0 and action.tool_id == 7:
         shaping += 0.40
@@ -231,10 +231,10 @@ def _contextual_reward_shaping(action, episode: dict, parse_mode: str) -> float:
     elif len(reasoning.split()) > 10:
         shaping -= 0.10
 
-    # Anti-collapse: aggressively penalize tool monoculture
+    # Anti-collapse: brutally penalize tool monoculture to force exploration
     dominant_tool, dominant_rate = _dominant_tool_snapshot(recent_actions)
-    if dominant_rate >= 0.55 and action.tool_id == dominant_tool:
-        shaping -= min(1.50, 0.20 + (dominant_rate - 0.55) * 2.9)
+    if dominant_rate >= 0.40 and action.tool_id == dominant_tool:
+        shaping -= min(2.50, 0.50 + (dominant_rate - 0.40) * 5.0)
 
     return shaping
 
