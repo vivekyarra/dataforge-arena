@@ -130,9 +130,9 @@ def _completion_to_text(completion) -> str:
 def _format_progress_reward(completion) -> float:
     text = _completion_to_text(completion).strip()
     if not text:
-        return -1.5
+        return -0.8
 
-    score = -1.25
+    score = -0.60
     lowered = text.lower()
     if text.startswith("{"):
         score += 0.45
@@ -157,7 +157,7 @@ def _format_progress_reward(completion) -> float:
         if any(alias in lowered for alias in aliases):
             score += 0.20
 
-    return max(-1.5, min(score, -0.10))
+    return max(-0.8, min(score, 0.20))
 
 
 def _extract_suspect_column_indices(rows_json: str, schema: dict) -> dict[int, list[int]]:
@@ -207,9 +207,9 @@ def _contextual_reward_shaping(action, episode: dict, parse_mode: str, training_
 
     # Parse quality — strongly reward exact JSON, gently penalize recovered
     if parse_mode == "exact":
-        shaping += 1.00
+        shaping += 1.50
     elif parse_mode == "recovered":
-        shaping -= 0.25
+        shaping -= 0.15
 
     total_errors = int(episode.get("total_errors", 0))
     if total_errors > 0 and action.tool_id == 7:
@@ -424,13 +424,16 @@ trainer = GRPOTrainer(
         warmup_ratio=0.08,
         per_device_train_batch_size=model_cfg["batch_size"],
         gradient_accumulation_steps=model_cfg["grad_accum"],
-        num_train_epochs=3,
+        # With max_steps set, keep epochs at 1 so Trainer does not chew
+        # through multiple full dataset passes on the slow T4 path.
+        num_train_epochs=1,
         logging_steps=5,
-        save_steps=25,
+        save_steps=50,
         report_to="none",
         max_steps=model_cfg["target_steps"],
         bf16=precision_cfg["bf16"],
         fp16=precision_cfg["fp16"],
+        dataloader_num_workers=0,
     ),
     train_dataset=train_dataset,
 )

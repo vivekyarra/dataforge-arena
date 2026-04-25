@@ -24,7 +24,7 @@ class RewardComputer:
         # = +0.0025 delta x 50 = +0.125 reward per correct fix
         current_acc = self._field_accuracy(state, ground_truth)
         delta = current_acc - prev_accuracy
-        rewards["accuracy_delta"] = delta * 80.0
+        rewards["accuracy_delta"] = delta * 120.0
         rewards["_current_accuracy"] = current_acc  # stored for next step
 
         # R2: TOOL LOGIC -- heuristic process supervision, no LLM
