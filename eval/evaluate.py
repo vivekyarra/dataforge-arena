@@ -5,6 +5,8 @@ Usage:
     python eval/evaluate.py --agent-mode heuristic
     python eval/evaluate.py --agent-mode grpo --model-path outputs/dataforge-surgeon
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os

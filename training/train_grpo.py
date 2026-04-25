@@ -2,6 +2,8 @@
 DataForge Arena -- GRPO Training Script
 Run on campus with HF compute credits.
 """
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
@@ -26,9 +28,12 @@ import torch
 from datasets import Dataset
 
 # --- HOTFIX FOR TRANSFORMERS HUB COMPAT ---
-import transformers.utils.hub
-if not hasattr(transformers.utils.hub, "TRANSFORMERS_CACHE"):
-    transformers.utils.hub.TRANSFORMERS_CACHE = os.getenv("HF_HOME", "/tmp/hf_cache")
+try:
+    import transformers.utils.hub
+    if not hasattr(transformers.utils.hub, "TRANSFORMERS_CACHE"):
+        transformers.utils.hub.TRANSFORMERS_CACHE = os.getenv("HF_HOME", "/tmp/hf_cache")
+except Exception:
+    pass  # Non-fatal; some transformers versions don't need this.
 # -----------------------------------------------
 
 from trl import GRPOConfig, GRPOTrainer
