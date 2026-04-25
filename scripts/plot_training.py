@@ -28,8 +28,9 @@ def plot_curves(log_path: str, output_path: str):
         print("ERROR: empty log file")
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 9))
     fig.patch.set_facecolor("#0a0a0f")
+    axes = axes.flatten()
 
     for ax in axes:
         ax.set_facecolor("#111118")
@@ -39,17 +40,32 @@ def plot_curves(log_path: str, output_path: str):
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
-    axes[0].plot(df["step"], df["total_reward"], color="#10b981", linewidth=2)
+    reward_ma = df["total_reward"].rolling(window=3, min_periods=1).mean()
+    axes[0].plot(df["step"], df["total_reward"], color="#86efac", linewidth=1.2, alpha=0.45)
+    axes[0].plot(df["step"], reward_ma, color="#10b981", linewidth=2.5)
     axes[0].set_title("Total Reward", color="#e2e8f0", fontsize=14)
     axes[0].set_xlabel("Step", color="#94a3b8")
     axes[0].set_ylabel("Reward", color="#94a3b8")
     axes[0].axhline(y=0, color="#374151", linestyle="--", alpha=0.5)
 
-    axes[1].plot(df["step"], df["difficulty"], color="#f59e0b", linewidth=2)
-    axes[1].set_title("Difficulty Escalation", color="#e2e8f0", fontsize=14)
+    axes[1].plot(df["step"], df["accuracy_delta"], color="#38bdf8", linewidth=2)
+    axes[1].set_title("Accuracy Delta Component", color="#e2e8f0", fontsize=14)
     axes[1].set_xlabel("Step", color="#94a3b8")
-    axes[1].set_ylabel("Tier", color="#94a3b8")
-    axes[1].set_ylim(0.5, 3.5)
+    axes[1].set_ylabel("Reward Component", color="#94a3b8")
+    axes[1].axhline(y=0, color="#374151", linestyle="--", alpha=0.5)
+
+    parse_pct = df["parse_success_rate"] * 100.0
+    axes[2].plot(df["step"], parse_pct, color="#fbbf24", linewidth=2)
+    axes[2].set_title("Parse Success Rate", color="#e2e8f0", fontsize=14)
+    axes[2].set_xlabel("Step", color="#94a3b8")
+    axes[2].set_ylabel("Valid JSON (%)", color="#94a3b8")
+    axes[2].set_ylim(0, 105)
+
+    axes[3].plot(df["step"], df["efficiency"], color="#f472b6", linewidth=2)
+    axes[3].set_title("Repair Targeting Efficiency", color="#e2e8f0", fontsize=14)
+    axes[3].set_xlabel("Step", color="#94a3b8")
+    axes[3].set_ylabel("Reward Component", color="#94a3b8")
+    axes[3].axhline(y=0, color="#374151", linestyle="--", alpha=0.5)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight", facecolor="#0a0a0f")
@@ -60,16 +76,23 @@ def plot_curves(log_path: str, output_path: str):
     last = df["total_reward"].iloc[-1]
     best = df["total_reward"].max()
     pct = ((last - first) / abs(first) * 100) if first != 0 else 0
+    parse_first = df["parse_success_rate"].iloc[0] * 100.0
+    parse_last = df["parse_success_rate"].iloc[-1] * 100.0
+    acc_first = df["accuracy_delta"].iloc[0]
+    acc_last = df["accuracy_delta"].iloc[-1]
 
     summary = f"""
 === Training Summary ===
-Steps:        {len(df)}
+Rows logged:    {len(df)}
+Final step:     {df["step"].iloc[-1]}
 First reward:  {first:+.3f}
 Final reward:  {last:+.3f}
 Best reward:   {best:+.3f}
 Improvement:   {pct:+.0f}%
+Parse rate:    {parse_first:.1f}% -> {parse_last:.1f}%
+Accuracy comp: {acc_first:+.4f} -> {acc_last:+.4f}
 ========================
-HEADLINE: Reward improved from {first:+.2f} to {last:+.2f} ({pct:+.0f}%)
+HEADLINE: Reward {first:+.2f} -> {last:+.2f}; parse {parse_first:.0f}% -> {parse_last:.0f}%
 """
     print(summary)
 
