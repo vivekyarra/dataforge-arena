@@ -9,7 +9,7 @@ Theme: World Modeling - Multi-App RL Environment for Enterprise Workflows
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compliant-10b981?style=for-the-badge)](https://github.com/huggingface/openenv)
 [![TRL](https://img.shields.io/badge/TRL-GRPO-f59e0b?style=for-the-badge)](https://huggingface.co/docs/trl/main/en/grpo)
-[![Tests](https://img.shields.io/badge/Tests-51_passed-10b981?style=for-the-badge)](./tests/test_all.py)
+[![Tests](https://img.shields.io/badge/Tests-56_passed-10b981?style=for-the-badge)](./tests/test_all.py)
 [![Evidence](https://img.shields.io/badge/Evidence-committed_artifacts-blue?style=for-the-badge)](./eval/results.json)
 
 ---
@@ -38,7 +38,7 @@ This public repo is intentionally honest about evidence. It ships a working envi
 | Trained GRPO checkpoint is less destructive than random | `+0.41 pp` advantage in accuracy delta | [`eval/results.json`](./eval/results.json) |
 | T4 GRPO proof run completed | Tesla T4, target `80` steps, last logged step `75` | [`logs/training_log.csv`](./logs/training_log.csv), [`logs/training_curve.png`](./logs/training_curve.png) |
 | Parser improved during the short run | parse success `25% -> 50%`, mean `40.00%` | [`logs/training_log.csv`](./logs/training_log.csv) |
-| Regression suite is green | `51 passed` | `python -m pytest -q` |
+| Regression suite is green | `56 passed` | `python -m pytest -q` |
 
 Important: the trained checkpoint directory itself is not committed because `outputs/` is intentionally ignored. The committed GRPO evidence comes from the Colab-produced checkpoint at `outputs/dataforge-surgeon`; the demo exposes `Live GRPO Model` only when that checkpoint exists locally.
 

@@ -232,6 +232,25 @@ def test_parser_handles_chat_messages():
     assert action.tool_id == 2
 
 
+def test_parser_accepts_row_idx_and_tool_name_aliases():
+    action = robust_parse_action(
+        '{"reasoning":"email invalid fix format","tool":"CORRECT_FORMAT","col":4,"_row_idx":6}',
+        require_fields=True,
+    )
+    assert action.tool_id == 3
+    assert action.column == 4
+    assert action.row_id == 6
+
+
+def test_parser_accepts_tool_name_in_regex_fallback():
+    action = robust_parse_action(
+        '"reasoning":"age missing use median", "tool_name":"IMPUTE_MEDIAN", "column":2, "row_idx":14'
+    )
+    assert action.tool_id == 0
+    assert action.column == 2
+    assert action.row_id == 14
+
+
 def test_parser_clamps_high_tool_id():
     action = robust_parse_action('{"reasoning":"test","tool_id":99,"column":0,"row_id":0}')
     assert action.tool_id == 7
@@ -546,3 +565,16 @@ def test_observation_scores_format_mismatch(env, clean_df):
     rows = json.loads(obs.rows_json)
     assert obs.total_errors >= 1
     assert any(row["_row_idx"] == 0 for row in rows)
+
+
+def test_observation_exposes_suspect_columns(env, clean_df):
+    env._state = clean_df.copy()
+    env._ground_truth = clean_df.copy()
+    env._action_log = []
+    env._step_count = 0
+    env._state.at[0, "email"] = "not-an-email"
+    obs = env._make_observation()
+    rows = json.loads(obs.rows_json)
+    target = next(row for row in rows if row["_row_idx"] == 0)
+    assert target["_error_score"] >= 1
+    assert "email" in target["_suspect_columns"]

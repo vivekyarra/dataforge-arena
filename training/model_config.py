@@ -116,11 +116,13 @@ def select_model(gpu_info: dict) -> dict:
             "num_generations": 4,
             "batch_size": 1,
             "grad_accum": 4,
-            "target_steps": 80,
-            "dataset_size": 320,
-            "max_completion_length": 96,
-            "temperature": 0.35,
+            "target_steps": 120,
+            "dataset_size": 384,
+            "max_completion_length": 72,
+            "temperature": 0.25,
             "max_training_tier": 2,
+            "financial_mix_rate": 0.15,
+            "tier2_fraction": 0.10,
             "label": "Qwen 2.5 1.5B (speed mode)",
         }
 

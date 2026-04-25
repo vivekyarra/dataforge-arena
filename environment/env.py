@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from environment.corruptor import Corruptor
 from environment.reward import RewardComputer
 from environment.tools import apply_tool
-from environment.validation import summarize_corruption
+from environment.validation import summarize_corruption_details
 
 
 class SurgeonAction(BaseModel):
@@ -34,6 +34,7 @@ class DataForgeObservation(BaseModel):
 class DataForgeEnv(BaseEnv):
     MAX_STEPS = 20
     MAX_SECONDS = 30
+    DISPLAY_ROW_LIMIT = 4
 
     def __init__(self, corruptor: Corruptor, schema: dict, clean_data: pd.DataFrame):
         self._corruptor = corruptor
@@ -143,17 +144,25 @@ class DataForgeEnv(BaseEnv):
             active_mask = ~self._state["_is_deleted"].fillna(False)
         state_clean = self._state.loc[active_mask].drop(columns=["_is_deleted"], errors="ignore")
 
-        corruption_scores, total_errors = summarize_corruption(state_clean, self._schema)
+        corruption_scores, total_errors, suspect_columns = summarize_corruption_details(
+            state_clean,
+            self._schema,
+            max_issue_columns=3,
+        )
         ranked_rows = sorted(
-            zip(state_clean.index.tolist(), corruption_scores),
+            zip(state_clean.index.tolist(), corruption_scores, suspect_columns),
             key=lambda item: (-item[1], item[0]),
         )
-        top_idx = [row_idx for row_idx, _ in ranked_rows[:5]]
+        top_idx = [row_idx for row_idx, _, _ in ranked_rows[: self.DISPLAY_ROW_LIMIT]]
+        suspect_by_row = {row_idx: issues for row_idx, _, issues in ranked_rows}
+        error_score_by_row = {row_idx: score for row_idx, score, _ in ranked_rows}
         top_rows = state_clean.loc[top_idx] if top_idx else state_clean.iloc[0:0]
 
         rows_safe = []
         for orig_idx, row in top_rows.iterrows():
             record = {"_row_idx": int(orig_idx)}
+            record["_error_score"] = int(error_score_by_row.get(orig_idx, 0))
+            record["_suspect_columns"] = suspect_by_row.get(orig_idx, [])
             for col_name in top_rows.columns:
                 value = row[col_name]
                 if pd.isna(value):

@@ -141,15 +141,25 @@ def cell_has_error(
 
 
 def summarize_corruption(df: pd.DataFrame, schema: dict) -> tuple[list[int], int]:
+    row_scores, total_errors, _ = summarize_corruption_details(df, schema)
+    return row_scores, total_errors
+
+
+def summarize_corruption_details(
+    df: pd.DataFrame,
+    schema: dict,
+    max_issue_columns: int | None = None,
+) -> tuple[list[int], int, list[list[str]]]:
     if df is None or df.empty:
-        return [], 0
+        return [], 0, []
 
     reference_year = infer_reference_year(df)
     row_scores = []
     total_errors = 0
+    row_issue_columns: list[list[str]] = []
 
     for _, row in df.iterrows():
-        score = 0
+        issue_columns = []
         for col_name in df.columns:
             has_error = cell_has_error(
                 row[col_name],
@@ -159,8 +169,12 @@ def summarize_corruption(df: pd.DataFrame, schema: dict) -> tuple[list[int], int
                 reference_year=reference_year,
             )
             if has_error:
-                score += 1
+                issue_columns.append(col_name)
                 total_errors += 1
-        row_scores.append(score)
+        full_issue_count = len(issue_columns)
+        if max_issue_columns is not None:
+            issue_columns = issue_columns[:max_issue_columns]
+        row_scores.append(full_issue_count)
+        row_issue_columns.append(issue_columns)
 
-    return row_scores, total_errors
+    return row_scores, total_errors, row_issue_columns

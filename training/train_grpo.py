@@ -76,13 +76,14 @@ model = FastLanguageModel.get_peft_model(
 )
 
 episode_cache = {}
-_EPISODE_KEY_RE = _re.compile(r"EPISODE_CACHE_KEY:\s*([0-9a-f]{32})")
+_EPISODE_KEY_RE = _re.compile(r"EPISODE_CACHE_KEY:\s*([0-9a-f]{12})")
 
 
 def _tier_for_example(index: int, total_examples: int) -> int:
     progress = index / max(total_examples - 1, 1)
     if model_cfg.get("max_training_tier", 3) <= 2:
-        return 1 if progress < 0.75 else 2
+        tier2_fraction = float(model_cfg.get("tier2_fraction", 0.10))
+        return 1 if progress < (1.0 - tier2_fraction) else 2
     if progress < 0.60:
         return 1
     if progress < 0.85:
@@ -109,20 +110,65 @@ def _extract_episode_key(prompt) -> str | None:
     return match.group(1) if match else None
 
 
+def _completion_to_text(completion) -> str:
+    if isinstance(completion, str):
+        return completion
+    if isinstance(completion, dict):
+        if "content" in completion:
+            return str(completion["content"])
+        return str(completion)
+    if isinstance(completion, list):
+        return "\n".join(_completion_to_text(item) for item in completion)
+    return str(completion)
+
+
+def _format_progress_reward(completion) -> float:
+    text = _completion_to_text(completion).strip()
+    if not text:
+        return -2.0
+
+    score = -1.75
+    lowered = text.lower()
+    if text.startswith("{"):
+        score += 0.45
+    if "{" in text and "}" in text:
+        score += 0.25
+    if "```" in text:
+        score -= 0.15
+    if "\n" not in text:
+        score += 0.10
+    if len(text) <= 220:
+        score += 0.15
+    elif len(text) > 400:
+        score -= 0.20
+
+    key_groups = (
+        ("reasoning",),
+        ("tool_id", "tool", "tool_name", "action"),
+        ("column", "col", "column_idx", "col_idx"),
+        ("row_id", "row_idx", "_row_idx", "row"),
+    )
+    for aliases in key_groups:
+        if any(alias in lowered for alias in aliases):
+            score += 0.20
+
+    return max(-2.0, min(score, -0.25))
+
+
 def build_dataset(n=200) -> Dataset:
     prompts = []
     episode_cache.clear()
     for idx in range(n):
-        if _random.random() < 0.5:
-            env._schema = HEALTHCARE_SCHEMA
-            env._clean_data = clean_data_hc
-        else:
+        if _random.random() < float(model_cfg.get("financial_mix_rate", 0.5)):
             env._schema = FINANCIAL_SCHEMA
             env._clean_data = clean_data_fin
+        else:
+            env._schema = HEALTHCARE_SCHEMA
+            env._clean_data = clean_data_hc
 
         corruptor.force_tier(_tier_for_example(idx, n))
         obs = env.reset()
-        episode_key = _uuid.uuid4().hex
+        episode_key = _uuid.uuid4().hex[:12]
         episode_cache[episode_key] = {
             "state": env._state.copy(),
             "gt": env._ground_truth.copy(),
@@ -181,14 +227,20 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         env._episode_start = _time.time()
         batch_difficulties.append(episode["difficulty"])
 
+        structural_penalty = 0.0
         try:
             action = robust_parse_action(completion, require_fields=True)
             parse_successes[0] += 1
         except ValueError:
-            rewards.append(-2.0)
-            continue
+            structural_penalty = _format_progress_reward(completion)
+            try:
+                action = robust_parse_action(completion, require_fields=False)
+            except ValueError:
+                rewards.append(structural_penalty)
+                continue
 
         _, reward, _, info = env.step(action)
+        reward += structural_penalty
         recent_actions.append(action.model_dump())
         if len(recent_actions) > 100:
             recent_actions.pop(0)

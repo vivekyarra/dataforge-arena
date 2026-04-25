@@ -167,6 +167,8 @@ class RewardComputer:
         # Anti-hallucination gate: empty/trivial reasoning gets small penalty
         if len(reasoning) < 10:
             return -0.1
+        if len(reasoning.split()) > 10 or len(reasoning) > 80:
+            return -0.2
             
         bonus = 0.0
         
@@ -174,6 +176,12 @@ class RewardComputer:
             cell_val = state.iloc[action.row_id, action.column]
             is_null = pd.isna(cell_val)
         except IndexError:
+            return 0.0
+
+        tool_name = SURGEON_TOOLS[action.tool_id]["name"]
+        if is_null and tool_name == "NO_OP":
+            return 0.0
+        if (not is_null) and tool_name in ("IMPUTE_MEDIAN", "IMPUTE_MODE", "IMPUTE_FORWARD_FILL"):
             return 0.0
         
         if is_null and any(kw in reasoning for kw in
@@ -184,12 +192,12 @@ class RewardComputer:
                                ["format", "type", "invalid", "incorrect",
                                 "wrong", "error"]):
             bonus += 0.3
-        
+
         if any(kw in reasoning for kw in
                ["because", "therefore", "since", "indicates", "suggests"]):
             bonus += 0.1
-        
-        return bonus
+
+        return min(bonus, 0.4)
 
     def _score_efficiency(self, action, state, ground_truth, previous_state=None) -> float:
         """
