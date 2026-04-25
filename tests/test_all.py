@@ -359,6 +359,31 @@ def test_eval_resolve_grpo_requires_local_checkpoint(tmp_path):
         resolve_eval_agent("grpo", str(missing_path))
 
 
+def test_eval_resolves_latest_adapter_checkpoint(tmp_path):
+    from eval.evaluate import _resolve_loadable_model_path
+
+    root = tmp_path / "outputs"
+    old_checkpoint = root / "checkpoint-25"
+    latest_checkpoint = root / "checkpoint-75"
+    old_checkpoint.mkdir(parents=True)
+    latest_checkpoint.mkdir(parents=True)
+    (old_checkpoint / "adapter_config.json").write_text("{}", encoding="utf-8")
+    (latest_checkpoint / "adapter_config.json").write_text("{}", encoding="utf-8")
+
+    assert _resolve_loadable_model_path(str(root)) == latest_checkpoint
+
+
+def test_eval_prefers_root_adapter_checkpoint(tmp_path):
+    from eval.evaluate import _resolve_loadable_model_path
+
+    (tmp_path / "adapter_config.json").write_text("{}", encoding="utf-8")
+    nested = tmp_path / "checkpoint-99"
+    nested.mkdir()
+    (nested / "adapter_config.json").write_text("{}", encoding="utf-8")
+
+    assert _resolve_loadable_model_path(str(tmp_path)) == tmp_path
+
+
 def test_committed_eval_results_include_provenance():
     payload = json.loads(Path("eval/results.json").read_text(encoding="utf-8"))
     assert payload["agent_mode"] == "heuristic"

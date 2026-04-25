@@ -30,11 +30,110 @@ DEFAULT_LOCAL_MODEL_PATH = "outputs/dataforge-surgeon"
 llm_pipeline = None
 
 
+class LocalTextGenerator:
+    def __init__(self, model, tokenizer):
+        self.model = model
+        self.tokenizer = tokenizer
+
+    def __call__(
+        self,
+        messages,
+        max_new_tokens: int = 128,
+        temperature: float = 0.1,
+        do_sample: bool = False,
+        num_return_sequences: int = 1,
+    ):
+        del num_return_sequences
+        if hasattr(self.tokenizer, "apply_chat_template"):
+            prompt = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            prompt = "\n".join(str(msg.get("content", msg)) for msg in messages)
+
+        inputs = self.tokenizer(prompt, return_tensors="pt")
+        device = next(self.model.parameters()).device
+        inputs = {key: value.to(device) for key, value in inputs.items()}
+
+        generate_kwargs = {
+            "max_new_tokens": max_new_tokens,
+            "do_sample": do_sample,
+            "pad_token_id": self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
+        }
+        if do_sample:
+            generate_kwargs["temperature"] = temperature
+
+        import torch
+
+        with torch.no_grad():
+            outputs = self.model.generate(**inputs, **generate_kwargs)
+        generated_ids = outputs[0][inputs["input_ids"].shape[-1]:]
+        generated_text = self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+        return [{"generated_text": [*messages, {"role": "assistant", "content": generated_text}]}]
+
+
 def _preferred_inference_dtype(torch_module, device: int):
     if device < 0:
         return torch_module.float32
     major, _ = torch_module.cuda.get_device_capability(device)
     return torch_module.bfloat16 if major >= 8 else torch_module.float16
+
+
+def _config_has_model_type(path: Path) -> bool:
+    config_path = path / "config.json"
+    if not config_path.exists():
+        return False
+    try:
+        with config_path.open("r", encoding="utf-8") as handle:
+            return "model_type" in json.load(handle)
+    except json.JSONDecodeError:
+        return False
+
+
+def _is_adapter_checkpoint(path: Path) -> bool:
+    return (path / "adapter_config.json").exists()
+
+
+def _checkpoint_sort_key(path: Path) -> int:
+    try:
+        return int(path.name.rsplit("-", 1)[-1])
+    except ValueError:
+        return -1
+
+
+def _resolve_loadable_model_path(model_path: str) -> Path:
+    root = Path(model_path)
+    if _config_has_model_type(root) or _is_adapter_checkpoint(root):
+        return root
+
+    candidates = [
+        child for child in root.glob("checkpoint-*")
+        if child.is_dir() and (_config_has_model_type(child) or _is_adapter_checkpoint(child))
+    ]
+    if candidates:
+        return sorted(candidates, key=_checkpoint_sort_key)[-1]
+
+    raise FileNotFoundError(
+        f"No loadable full model or PEFT adapter checkpoint found under '{model_path}'. "
+        "Expected config.json with model_type, adapter_config.json, or checkpoint-*/adapter_config.json."
+    )
+
+
+def _tokenizer_source_for(path: Path) -> str:
+    if (path / "tokenizer_config.json").exists() or (path / "tokenizer.json").exists():
+        return str(path)
+
+    adapter_config = path / "adapter_config.json"
+    if adapter_config.exists():
+        with adapter_config.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        base_model = payload.get("base_model_name_or_path")
+        if base_model:
+            return base_model
+
+    return str(path)
 
 
 def resolve_eval_agent(agent_mode: str, model_path: str | None = None) -> dict:
@@ -66,17 +165,33 @@ def load_eval_pipeline(model_path: str):
     if llm_pipeline is not None:
         return llm_pipeline
 
-    from transformers import pipeline
+    from transformers import AutoModelForCausalLM, AutoTokenizer
     import torch
 
-    print(f"Loading GRPO checkpoint from {model_path} ...")
+    resolved_path = _resolve_loadable_model_path(model_path)
+    print(f"Loading GRPO checkpoint from {resolved_path} ...")
     device = 0 if torch.cuda.is_available() else -1
-    llm_pipeline = pipeline(
-        "text-generation",
-        model=model_path,
-        device=device,
-        torch_dtype=_preferred_inference_dtype(torch, device),
-    )
+    dtype = _preferred_inference_dtype(torch, device)
+    tokenizer = AutoTokenizer.from_pretrained(_tokenizer_source_for(resolved_path))
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    if _is_adapter_checkpoint(resolved_path):
+        from peft import AutoPeftModelForCausalLM
+
+        model = AutoPeftModelForCausalLM.from_pretrained(
+            str(resolved_path),
+            torch_dtype=dtype,
+            device_map="auto" if device >= 0 else None,
+        )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            str(resolved_path),
+            torch_dtype=dtype,
+            device_map="auto" if device >= 0 else None,
+        )
+    model.eval()
+    llm_pipeline = LocalTextGenerator(model, tokenizer)
     return llm_pipeline
 
 
@@ -148,7 +263,7 @@ def grpo_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame, env: DataForgeEnv)
     try:
         outputs = llm_pipeline(
             messages,
-            max_new_tokens=256,
+            max_new_tokens=96,
             temperature=0.1,
             do_sample=False,
             num_return_sequences=1,

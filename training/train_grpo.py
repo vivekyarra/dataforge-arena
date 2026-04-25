@@ -256,6 +256,8 @@ trainer = GRPOTrainer(
 )
 
 trainer.train()
+trainer.save_model("outputs/dataforge-surgeon")
+tokenizer.save_pretrained("outputs/dataforge-surgeon")
 
 print("\nTraining complete.")
 print("Model saved to: outputs/dataforge-surgeon")
