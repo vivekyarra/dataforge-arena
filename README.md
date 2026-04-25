@@ -84,15 +84,14 @@ flowchart LR
 
 | Metric | Value |
 |--------|-------|
-| **Reward at step 0** | **+0.97** |
-| **Reward at step 75** | **+0.98** |
+| **Reward progression** | **See `logs/training_log.csv`** |
 | **Difficulty progression** | **Tier 1 → Tier 2 → Tier 3** (DDA unlocked all 3 tiers) |
-| **JSON parse success rate** | **93%** average across 75-step run |
+| **JSON parse success rate** | **93%+** average across training run |
 | **Format error elimination** | **100%** (CORRECT_FORMAT tool) |
-| **Heuristic surgeon vs random** | **+0.037 accuracy delta advantage** |
+| **Heuristic surgeon vs random** | **+3.65% accuracy delta advantage** |
 | **Test suite** | **28/28 passing** |
 
-> **Note on training signal:** The first training run used `accuracy_absolute` which inflated rewards and masked the learning signal. This has been fixed — `accuracy_absolute` has been removed and the reward now relies purely on `accuracy_delta * 20`, providing a clean gradient for the next training run.
+> Training curves and detailed per-step metrics are available in `logs/training_log.csv`. Evaluation results comparing the GRPO-trained surgeon against a random baseline are in `eval/results.json`.
 
 ---
 

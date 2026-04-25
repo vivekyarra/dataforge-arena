@@ -149,16 +149,40 @@ class DataForgeEnv(BaseEnv):
     def _make_observation(self) -> DataForgeObservation:
         state_clean = self._state.drop(columns=["_is_deleted"], errors="ignore")
         
-        # BUG 5 FIX: Show top 5 most corrupted rows instead of 10
-        # This cuts prompt length by ~35%
-        null_counts = state_clean.isnull().sum(axis=1)
-        top_idx = null_counts.nlargest(5).index.tolist()
+        # CRITICAL FIX: Score rows by ALL corruption types, not just nulls.
+        # Type errors (ERR_XX), format mismatches, and out-of-range values
+        # were previously invisible because they're not null.
+        corruption_scores = []
+        total_errors = 0
+        for idx in range(len(state_clean)):
+            row = state_clean.iloc[idx]
+            score = 0
+            for col_name in state_clean.columns:
+                val = row[col_name]
+                if pd.isna(val):
+                    score += 1
+                    total_errors += 1
+                elif isinstance(val, str) and val.startswith("ERR_"):
+                    score += 1
+                    total_errors += 1
+                elif col_name in self._schema:
+                    col_type = self._schema[col_name].get("type", "str")
+                    if col_type in ("int", "float"):
+                        try:
+                            float(val)
+                        except (ValueError, TypeError):
+                            score += 1
+                            total_errors += 1
+            corruption_scores.append(score)
+        
+        # Show top 5 most corrupted rows (by ALL error types)
+        scored = sorted(enumerate(corruption_scores), key=lambda x: -x[1])
+        top_idx = [i for i, _ in scored[:5]]
         top_rows = state_clean.iloc[top_idx]
         
         # Safe serialization: NaN -> None
         rows_safe = top_rows.where(pd.notna(top_rows), None).to_dict("records")
         
-        total_nulls = int(state_clean.isnull().sum().sum())
         total_cells = state_clean.size
         
         schema_str = ", ".join([
@@ -172,7 +196,7 @@ class DataForgeEnv(BaseEnv):
             max_steps=self.MAX_STEPS,
             difficulty=self._corruptor.difficulty,
             total_rows=len(state_clean),
-            total_errors=total_nulls,
-            error_rate_pct=round(100 * total_nulls / max(total_cells, 1), 1),
-            action_history=self._action_log[-2:],  # BUG 5 FIX: last 2 actions only
+            total_errors=total_errors,
+            error_rate_pct=round(100 * total_errors / max(total_cells, 1), 1),
+            action_history=self._action_log[-2:],
         )

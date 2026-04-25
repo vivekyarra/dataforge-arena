@@ -76,20 +76,20 @@ def _correct_format(val, col_name: str, schema: dict):
         digits = re.sub(r'\D', '', str(val))
         if len(digits) >= 10:
             return digits[:10]
-        return None
+        return val  # return original — agent should use FLAG_UNCERTAIN
     
     if "date" in col_lower:
         try:
             return pd.to_datetime(str(val)).strftime('%Y-%m-%d')
         except Exception:
-            return None
+            return val  # return original — unparseable date
     
     if "age" in col_lower:
         try:
             v = int(float(str(val)))
-            return v if 0 < v < 150 else None
+            return v if 0 < v < 150 else val
         except Exception:
-            return None
+            return val  # return original — not numeric
     
     return val  # no rule -- return unchanged
 

@@ -19,11 +19,11 @@ class RewardComputer:
             return {"total": -3.0, "timeout": True}
         
         # R1: ACCURACY DELTA -- primary learning signal
-        # Delta x 20 means: fixing one cell in a 100-cell dataset
-        # = +0.01 delta x 20 = +0.2 reward per correct fix
+        # Delta x 50 means: fixing one cell in a 400-cell dataset
+        # = +0.0025 delta x 50 = +0.125 reward per correct fix
         current_acc = self._field_accuracy(state, ground_truth)
         delta = current_acc - prev_accuracy
-        rewards["accuracy_delta"] = delta * 20.0
+        rewards["accuracy_delta"] = delta * 50.0
         rewards["_current_accuracy"] = current_acc  # stored for next step
 
         # R2: TOOL LOGIC -- heuristic process supervision, no LLM
