@@ -49,7 +49,9 @@ def _preferred_inference_dtype(torch_module, device: int):
     return torch_module.bfloat16 if major >= 8 else torch_module.float16
 
 
-def local_model_available(model_path: str = LOCAL_MODEL_PATH) -> bool:
+def local_model_available(model_path: str | None = None) -> bool:
+    if model_path is None:
+        model_path = LOCAL_MODEL_PATH
     try:
         _resolve_loadable_model_path(model_path)
         return True
