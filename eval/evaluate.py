@@ -30,8 +30,8 @@ def load_eval_pipeline():
         device = 0 if torch.cuda.is_available() else -1
         model_path = "outputs/dataforge-surgeon"
         if not os.path.exists(model_path):
-            print("WARNING: outputs/dataforge-surgeon not found. Falling back to heuristic.")
-            return None
+            print("WARNING: Local LoRA model not found. Attempting to pull from HF Hub (Vivek567/dataforge-surgeon)...")
+            model_path = "Vivek567/dataforge-surgeon"
         llm_pipeline = pipeline("text-generation", model=model_path, 
                                 device=device, torch_dtype=torch.bfloat16 if device==0 else torch.float32)
         return llm_pipeline

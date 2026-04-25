@@ -46,8 +46,8 @@ def load_llm():
         device = 0 if torch.cuda.is_available() else -1
         model_path = "outputs/dataforge-surgeon"
         if not os.path.exists(model_path):
-            print("WARNING: Trained LoRA model not found. Falling back to base model.")
-            model_path = "Qwen/Qwen2.5-1.5B-Instruct"
+            print("WARNING: Local LoRA model not found. Attempting to pull from HF Hub (Vivek567/dataforge-surgeon)...")
+            model_path = "Vivek567/dataforge-surgeon"
             
         llm_pipeline = pipeline("text-generation", model=model_path, 
                                 device=device, torch_dtype=torch.bfloat16 if device==0 else torch.float32)
