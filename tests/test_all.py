@@ -83,6 +83,8 @@ def test_force_tier_enables_requested_corruptions(corruptor, clean_df):
     _, _, meta = corruptor.generate_episode(clean_df)
     assert corruptor.current_tier() == 3
     assert meta["tool"] in {"break_foreign_key", "duplicate_row_mutate"}
+    assert meta["difficulty"] == 3
+    assert meta["requested_tier"] == 3
 
 
 def test_corruptor_is_transitioning(corruptor):
@@ -92,6 +94,21 @@ def test_corruptor_is_transitioning(corruptor):
     assert not corruptor.is_transitioning()
     corruptor._epoch = 75
     assert corruptor.is_transitioning()
+
+
+def test_corruptor_fallback_reports_actual_difficulty(corruptor, clean_df, monkeypatch):
+    def always_bad(df, tier):
+        return df, {"tool": "inject_null_cluster", "col": "age"}
+
+    monkeypatch.setattr(corruptor, "_corrupt", always_bad)
+    monkeypatch.setattr(corruptor, "_solvability_gate", lambda dirty, gt, metadata: (False, "bad"))
+    corruptor.force_tier(3)
+
+    _, _, meta = corruptor.generate_episode(clean_df)
+
+    assert meta["requested_tier"] == 3
+    assert meta["difficulty"] == 1
+    assert meta["fallback_from_tier"] == 3
 
 
 def test_accuracy_delta_positive_on_fix(clean_df):
@@ -146,6 +163,22 @@ def test_efficiency_penalizes_noop_on_incorrect_cell(clean_df):
     reward = rc._score_efficiency(action, dirty, clean_df, previous_state=dirty)
 
     assert reward < 0
+
+
+def test_reasoning_allows_medium_length_useful_explanations(clean_df):
+    rc = RewardComputer()
+    dirty = clean_df.copy()
+    dirty.at[0, "age"] = np.nan
+    action = SurgeonAction(
+        reasoning="age missing because source value is absent in this row today now",
+        tool_id=0,
+        column=list(clean_df.columns).index("age"),
+        row_id=0,
+    )
+
+    reward = rc._score_reasoning(action, dirty)
+
+    assert reward >= 0.3
 
 
 def test_antihack_mass_delete_penalty(clean_df):

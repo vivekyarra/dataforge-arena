@@ -51,6 +51,7 @@ class DataForgeEnv(BaseEnv):
         self._step_count: int = 0
         self._action_log: list = []
         self._episode_rewards: list = []
+        self._current_difficulty: int = corruptor.difficulty
 
     def reset(self) -> DataForgeObservation:
         n_samples = min(50, len(self._clean_data))
@@ -72,6 +73,7 @@ class DataForgeEnv(BaseEnv):
         self._step_count = 0
         self._action_log = []
         self._episode_rewards = []
+        self._current_difficulty = int(metadata.get("difficulty", self._corruptor.difficulty))
 
         return self._make_observation()
 
@@ -181,7 +183,7 @@ class DataForgeEnv(BaseEnv):
             schema_str=schema_str,
             step_count=self._step_count,
             max_steps=self.MAX_STEPS,
-            difficulty=self._corruptor.difficulty,
+            difficulty=self._current_difficulty,
             total_rows=int(len(state_clean)),
             total_errors=total_errors,
             error_rate_pct=round(100 * total_errors / max(total_cells, 1), 1),

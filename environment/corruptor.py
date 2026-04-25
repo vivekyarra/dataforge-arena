@@ -74,10 +74,17 @@ class Corruptor:
             dirty, metadata = self._corrupt(clean_df.copy(), tier)
             valid, _ = self._solvability_gate(dirty, clean_df, metadata)
             if valid:
+                metadata = dict(metadata)
+                metadata["requested_tier"] = tier
+                metadata["difficulty"] = tier
                 return dirty, clean_df.copy(), metadata
 
         logger.warning("Corruptor retry limit reached; falling back to tier 1")
         dirty, metadata = self._corrupt_tier1(clean_df.copy())
+        metadata = dict(metadata)
+        metadata["requested_tier"] = tier
+        metadata["difficulty"] = 1
+        metadata["fallback_from_tier"] = tier
         return dirty, clean_df.copy(), metadata
 
     def _corrupt(self, df: pd.DataFrame, tier: int) -> tuple:

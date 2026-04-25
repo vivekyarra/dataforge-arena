@@ -8,16 +8,18 @@ Usage:
 import argparse
 import json
 import os
+from pathlib import Path
 import random
 import sys
 import time
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO_ROOT = Path(__file__).resolve().parent.parent
+os.chdir(REPO_ROOT)
+sys.path.insert(0, str(REPO_ROOT))
 
 from environment.corruptor import Corruptor
 from environment.env import DataForgeEnv, SurgeonAction

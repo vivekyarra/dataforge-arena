@@ -167,7 +167,7 @@ class RewardComputer:
         # Anti-hallucination gate: empty/trivial reasoning gets small penalty
         if len(reasoning) < 10:
             return -0.1
-        if len(reasoning.split()) > 10 or len(reasoning) > 80:
+        if len(reasoning.split()) > 15 or len(reasoning) > 120:
             return -0.2
             
         bonus = 0.0

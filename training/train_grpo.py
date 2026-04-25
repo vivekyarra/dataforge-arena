@@ -3,12 +3,17 @@ DataForge Arena -- GRPO Training Script
 Run on campus with HF compute credits.
 """
 import os
+from pathlib import Path
 import random as _random
 import re as _re
 import sys
 import time as _time
 import uuid as _uuid
 import warnings
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+os.chdir(REPO_ROOT)
+sys.path.insert(0, str(REPO_ROOT))
 
 # Unsloth must patch transformers/TRL before they are imported.
 import unsloth  # noqa: F401
@@ -18,15 +23,13 @@ import pandas as pd
 import torch
 from datasets import Dataset
 
-# --- HOTFIX FOR TRL/LLM_BLENDER DEPENDENCY HELL ---
+# --- HOTFIX FOR TRANSFORMERS HUB COMPAT ---
 import transformers.utils.hub
 if not hasattr(transformers.utils.hub, "TRANSFORMERS_CACHE"):
     transformers.utils.hub.TRANSFORMERS_CACHE = os.getenv("HF_HOME", "/tmp/hf_cache")
-# --------------------------------------------------
+# -----------------------------------------------
 
 from trl import GRPOConfig, GRPOTrainer
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic")
