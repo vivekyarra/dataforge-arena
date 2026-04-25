@@ -21,7 +21,7 @@ Use the GRPO checkpoint as training evidence. The short Tesla T4 run produced a 
 
 | Training artifact | Value |
 |-------------------|-------|
-| Target steps | `80` |
+| Target steps | `150` |
 | Last logged step | `75` |
 | First -> final reward | `-1.4000 -> -1.4000` |
 | Best logged reward | `-0.2000` |

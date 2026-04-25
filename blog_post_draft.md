@@ -63,7 +63,7 @@ This repo is evidence-first. The current committed artifacts show:
 | Logged GRPO curriculum tiers | `1, 2, 3` |
 | Mean logged parse success | `40.00%` |
 | Parse success first to final | `25% -> 50%` |
-| Test suite | `60 passed` via `python -m pytest -q` |
+| Test suite | `130 passed` via `python -m pytest -q` |
 
 One important note: the public repo does not commit the local checkpoint directory because `outputs/` is ignored. The committed GRPO numbers come from the Colab-trained checkpoint at `outputs/dataforge-surgeon`. The demo and evaluation harness expose live GRPO mode only when that checkpoint exists locally.
 
@@ -74,7 +74,7 @@ The final short-run training artifact is honest about both progress and limits:
 | Artifact | Value |
 |----------|-------|
 | GPU | Tesla T4 |
-| Training target / final logged step | `80` target steps / last logged step `75` |
+| Training target / final logged step | `150` target steps / last logged step `75` |
 | First -> final logged reward | `-1.4000 -> -1.4000` |
 | Best logged reward | `-0.2000` |
 | Smoothed reward, first 3 rows -> last 3 rows | `-1.2000 -> -1.0000` |
@@ -124,7 +124,7 @@ python eval/evaluate.py --agent-mode grpo --model-path outputs/dataforge-surgeon
 
 | Resource | URL |
 |----------|-----|
-| Live HF Space | https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env |
+| Live HF Space | https://huggingface.co/spaces/Vivek567/dataforge-arena |
 | Colab Notebook | DataForge_Arena_Colab.ipynb |
 | GitHub | https://github.com/vivekyarra/dataforge-arena |
 

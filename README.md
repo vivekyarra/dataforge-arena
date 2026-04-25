@@ -46,7 +46,7 @@ This public repo is intentionally honest about evidence. It ships a working envi
 | Judge-facing demo with session isolation | Gradio `gr.State()` per session and guarded model loading | [`demo/app.py`](./demo/app.py) |
 | Heuristic surgeon beats random on baseline eval | `+0.53 pp` advantage in accuracy delta | [`eval/heuristic_results.json`](./eval/heuristic_results.json) |
 | Trained GRPO checkpoint is less destructive than random | `+0.41 pp` advantage in accuracy delta | [`eval/results.json`](./eval/results.json) |
-| T4 GRPO proof run completed | Tesla T4, target `80` steps, last logged step `75` | [`logs/training_log.csv`](./logs/training_log.csv), [`logs/training_curve.png`](./logs/training_curve.png) |
+| T4 GRPO proof run completed | Tesla T4, target `150` steps, last logged step `75` | [`logs/training_log.csv`](./logs/training_log.csv), [`logs/training_curve.png`](./logs/training_curve.png) |
 | Parser improved during the short run | parse success `25% -> 50%`, mean `40.00%` | [`logs/training_log.csv`](./logs/training_log.csv) |
 | Regression suite is green | `130 passed` (`61` core + `69` stress) | `python -m pytest -q` |
 
@@ -59,7 +59,7 @@ These values come from the final Tesla T4 Colab run and should be treated as evi
 | Artifact | Value |
 |----------|-------|
 | GPU | Tesla T4 |
-| Training target / final logged step | `80` target steps / last logged step `75` |
+| Training target / final logged step | `150` target steps / last logged step `75` |
 | First -> final logged reward | `-1.4000 -> -1.4000` |
 | Best logged reward | `-0.2000` |
 | Smoothed reward, first 3 rows -> last 3 rows | `-1.2000 -> -1.0000` |
@@ -154,7 +154,7 @@ For a zero-setup artifact, open [`artifacts/browser_simulator.html`](./artifacts
 
 For Colab GPU training, use [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb). It installs the pinned [`requirements-colab.txt`](./requirements-colab.txt) stack, verifies the indexed observation prompt format before training, avoids force-killing the runtime, and includes an optional Hugging Face upload cell for checkpoint publishing.
 
-The current T4 defaults now bias toward denser learning and lower cost: `150` max steps, `4` generations per prompt, `80`-token completions, `1280` sequence length, a smaller episode pool, GRPO warmup, and gentler early reward shaping so the run can finish comfortably under the 90-minute Colab cap.
+The current T4 defaults now bias toward denser learning and lower cost: `150` max steps, `4` generations per prompt, `80`-token completions, `1280` sequence length, a smaller episode pool, GRPO warmup, and gentler early reward shaping so the run can finish comfortably under the 90-minute Colab cap. The full configuration is defined in [`training/model_config.py`](./training/model_config.py).
 
 After training and saving a checkpoint to `outputs/dataforge-surgeon`:
 
@@ -194,17 +194,18 @@ class DataForgeEnv(BaseEnv):
 - [`demo/`](./demo): judge-facing Gradio demo with provenance-aware execution modes
 - [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html): standalone browser artifact for zero-setup judge interaction
 - [`logs/training_curve.png`](./logs/training_curve.png): final Colab reward curve artifact
-- [`tests/`](./tests): regression tests with `60` core checks plus `69` stress checks for parser fuzzing, reward bounds, tool coverage, schema integrity, and evidence files
+- [`tests/`](./tests): regression tests with `61` core checks plus `69` stress checks for parser fuzzing, reward bounds, tool coverage, schema integrity, and evidence files
 - [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb): recommended Colab notebook for the current stable training path
 - [`requirements-colab.txt`](./requirements-colab.txt): pinned Colab dependency stack for the notebook
 - [`pitch_script.md`](./pitch_script.md): three-minute judge narration with a demo moment
 - [`final_submission_summary.md`](./final_submission_summary.md): concise final evidence and pitch positioning
+- [`openenv.yaml`](./openenv.yaml): OpenEnv framework configuration for validation and submission
 
 ## Links
 
 | Resource | URL |
 |----------|-----|
-| Live HF Space | https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env |
+| Live HF Space | https://huggingface.co/spaces/Vivek567/dataforge-arena |
 | Colab Notebook | [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb) |
 | Browser Artifact | [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html) |
 | Judge Pitch Script | [`pitch_script.md`](./pitch_script.md) |

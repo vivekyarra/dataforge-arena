@@ -1,0 +1,91 @@
+# DataForge Arena — OpenEnv Configuration
+# https://huggingface.co/docs/openenv
+
+name: dataforge-arena
+version: "1.0.0"
+description: >
+  An OpenEnv benchmark for training and auditing data-repair agents
+  under adversarial tabular corruption across healthcare and financial schemas.
+
+# Environment interface
+env:
+  module: environment.env
+  class: DataForgeEnv
+  observation_type: structured
+  action_type: structured
+
+# Server configuration
+server:
+  module: environment.server
+  framework: fastapi
+  port: 7860
+  endpoints:
+    health: /health
+    info: /info
+    reset: /reset
+    step: /step
+    docs: /docs
+
+# Deployment
+deployment:
+  sdk: docker
+  dockerfile: Dockerfile
+  app_port: 7860
+
+# Task definition
+task:
+  name: tabular-data-repair
+  description: >
+    Observe a corrupted tabular dataset, select an appropriate repair tool
+    (impute, correct, delete, flag, no-op), target the right cell, and
+    improve data quality as measured by accuracy delta against ground truth.
+  max_steps: 5
+  difficulty_tiers: [1, 2, 3]
+
+# Reward specification
+reward:
+  primary_signal: accuracy_delta
+  shaping_terms:
+    - tool_logic
+    - reasoning
+    - efficiency
+    - anti_hack
+  range: [-3.0, 3.0]
+
+# Schemas
+schemas:
+  - name: healthcare
+    file: environment/schemas.py
+    columns: 7
+  - name: financial
+    file: environment/schemas.py
+    columns: 7
+
+# Training
+training:
+  algorithm: GRPO
+  framework: TRL
+  base_models:
+    - unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit
+    - unsloth/Llama-3.2-3B-Instruct-bnb-4bit
+    - unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit
+
+# Evaluation
+evaluation:
+  agent_modes: [heuristic, grpo, random]
+  default_episodes: 20
+  default_seed: 7
+  metrics:
+    - surgeon_avg_accuracy_delta
+    - random_avg_accuracy_delta
+    - surgeon_advantage_accuracy_delta
+    - surgeon_win_rate
+
+# Metadata
+metadata:
+  authors: [Vivek567]
+  license: MIT
+  hackathon: "Meta x PyTorch x Hugging Face x Scaler OpenEnv Hackathon 2026"
+  theme: "World Modeling - Multi-App RL Environment for Enterprise Workflows"
+  repository: https://github.com/vivekyarra/dataforge-arena
+  space: https://huggingface.co/spaces/Vivek567/dataforge-arena
