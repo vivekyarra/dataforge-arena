@@ -13,6 +13,13 @@ import warnings
 import pandas as pd
 import torch
 from datasets import Dataset
+
+# --- HOTFIX FOR TRL/LLM_BLENDER DEPENDENCY HELL ---
+import transformers.utils.hub
+if not hasattr(transformers.utils.hub, "TRANSFORMERS_CACHE"):
+    transformers.utils.hub.TRANSFORMERS_CACHE = transformers.utils.hub.HF_HUB_CACHE
+# --------------------------------------------------
+
 from trl import GRPOConfig, GRPOTrainer
 from unsloth import FastLanguageModel
 
