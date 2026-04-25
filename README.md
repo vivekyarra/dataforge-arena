@@ -148,7 +148,7 @@ DataForge Arena implements the [OpenEnv](https://github.com/huggingface/openenv)
 class DataForgeEnv(BaseEnv):
     def reset(self) -> DataForgeObservation:
         """Generate a fresh corrupted episode."""
-    def step(self, action: SurgeonAction) -> tuple[Observation, dict, bool, dict]:
+    def step(self, action: SurgeonAction) -> tuple[Observation, float, bool, dict]:
         """Apply a repair tool and return reward signals."""
 ```
 
