@@ -17,7 +17,7 @@
     {"step":5,"action":{"reasoning":"Date format violation row 28.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":28},"accuracy_before":0.995,"accuracy_after":0.996,"delta":0.001},
     {"step":6,"action":{"reasoning":"Date format violation row 35.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":35},"accuracy_before":0.996,"accuracy_after":0.997,"delta":0.001},
     {"step":7,"action":{"reasoning":"Date format violation row 42.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":42},"accuracy_before":0.997,"accuracy_after":0.998,"delta":0.001},
-    {"step":8,"action":{"reasoning":"Date format violation row 50.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":50},"accuracy_before":0.998,"accuracy_after":0.999,"delta":0.001},
-    {"step":9,"action":{"reasoning":"Final date format violation row 58.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":58},"accuracy_before":0.999,"accuracy_after":1.0,"delta":0.001}
+    {"step":8,"action":{"reasoning":"Date format violation row 50.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":47},"accuracy_before":0.998,"accuracy_after":0.999,"delta":0.001},
+    {"step":9,"action":{"reasoning":"Final date format violation row 58.","tool_id":3,"tool_name":"CORRECT_FORMAT","column":9,"row_id":49},"accuracy_before":0.999,"accuracy_after":1.0,"delta":0.001}
   ]
 }

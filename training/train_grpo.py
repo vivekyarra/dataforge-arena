@@ -78,6 +78,10 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
     saw the state after completion #1 already modified it.
     """
     rewards = []
+    component_accum = {
+        "accuracy_delta": [], "tool_logic": [], 
+        "reasoning": [], "efficiency": [], "anti_hack": []
+    }
     
     for completion in completions:
         total_rollouts[0] += 1
@@ -97,16 +101,22 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         if len(recent_actions) > 100:
             recent_actions.pop(0)
         
+        
+        for k in component_accum:
+            component_accum[k].append(reward_dict.get(k, 0))
+            
         rewards.append(reward_dict["total"])
+    
+    # ADD THIS LINE — advance corruptor epoch every training step
+    corruptor.record_episode(sum(rewards) / max(len(rewards), 1))
     
     # Log every 5 steps
     if current_step[0] % 5 == 0:
-        avg_reward = sum(rewards) / len(rewards) if rewards else 0
+        avg_components = {k: sum(v)/max(len(v),1) for k, v in component_accum.items()}
+        avg_reward = sum(rewards) / max(len(rewards), 1)
         logger.log(
             step=current_step[0],
-            reward_dict={"total": avg_reward,
-                         "accuracy_delta": 0, "tool_logic": 0,
-                         "reasoning": 0, "efficiency": 0, "anti_hack": 0},
+            reward_dict={"total": avg_reward, **avg_components},
             difficulty=corruptor.difficulty,
             model_label=model_cfg["label"],
             parse_successes=parse_successes[0],
@@ -134,15 +144,7 @@ def safe_advantage_norm(rewards):
         return [0.0] * len(rewards)  # skip update
     return ((R - R.mean()) / (std + 1e-8)).tolist()
 
-# -- Step 7: Dynamic KL beta (fixes catastrophic forgetting) -------
-def get_beta() -> float:
-    """
-    Raise KL beta during tier transitions to prevent
-    policy from updating too aggressively on unfamiliar distributions.
-    """
-    if corruptor.is_transitioning():
-        return 0.05   # 5x higher during transition -- tight leash
-    return 0.01       # normal
+
 
 # -- Step 8: Train -------------------------------------------------
 print("\nStarting GRPO training...")

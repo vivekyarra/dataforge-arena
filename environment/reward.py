@@ -157,7 +157,12 @@ class RewardComputer:
 
     def _score_reasoning(self, action, state) -> float:
         """Fast keyword heuristic -- NOT LLM-as-judge."""
-        reasoning = action.reasoning.lower()
+        reasoning = action.reasoning.strip().lower()
+        
+        # Anti-hallucination gate: empty/trivial reasoning gets small penalty
+        if len(reasoning) < 10:
+            return -0.1
+            
         bonus = 0.0
         
         try:

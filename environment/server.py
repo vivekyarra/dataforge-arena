@@ -49,6 +49,7 @@ async def health():
         "status": "ok",
         "difficulty": env._corruptor.difficulty if env else 0,
         "epoch": env._corruptor._epoch if env else 0,
+        "rolling_avg_reward": round(env._corruptor._rolling_avg(), 4) if env else 0,
     }
 
 @app.get("/info")

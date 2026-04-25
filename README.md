@@ -1,15 +1,26 @@
 # DataForge Arena
 
-> **Self-improving data repair agents trained in adversarial environments.**
+> **A World Modeling RL environment where an LLM learns to repair corrupted enterprise data through adversarial self-play.**
 
-Built for the [Meta PyTorch OpenEnv AI Hackathon 2026](https://pytorch.org/event/openenv-ai-hackathon/)
+Built for the Meta × PyTorch × HuggingFace × Scaler OpenEnv Hackathon 2026  
+**Theme: 3.1 World Modeling — Multi-App RL Environment for Enterprise Workflows** *(Scaler AI Labs sub-theme)*
 
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compliant-10b981?style=for-the-badge)](https://github.com/huggingface/openenv)
 [![TRL GRPO](https://img.shields.io/badge/TRL-GRPO_Training-f59e0b?style=for-the-badge)](https://huggingface.co/docs/trl/main/en/grpo)
 [![Tests](https://img.shields.io/badge/Tests-28%2F28%20Passing-10b981?style=for-the-badge)](#)
+[![HF Space](https://img.shields.io/badge/🤗_Live_Demo-HF_Space-blue?style=for-the-badge)](https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env)
 
 ---
+
+## 🌍 World Modeling — Why This Theme
+
+The agent must build an internal model of what clean data looks like vs what it observes:
+* It must model tool-effect relationships (`IMPUTE_MEDIAN` on null numeric → accuracy restored).
+* It must model adversarial dynamics (Corruptor escalates as Surgeon improves).
+* It must model multi-schema environments (healthcare + financial, same agent).
+
+This is a structured world with rules, state, tools, and consequences — the exact class World Modeling RL targets.
 
 ## The Problem Nobody Solved
 
@@ -19,27 +30,53 @@ LLMs can write code, pass bar exams, and generate artwork. But ask one to look a
 
 **No benchmark exists to train this skill.** Until now.
 
-## What DataForge Arena Does
+## System Architecture
 
-We built a system powered by **PyTorch**, **TRL**, and **OpenEnv** featuring two adversarial agents locked in an infinite curriculum.
-
+```mermaid
+flowchart LR
+    subgraph ARENA ["DataForge Arena (OpenEnv)"]
+        direction TB
+        C["CORRUPTOR\nRule-based · 3 Tiers\nDynamic Difficulty Adjustment"]
+        E["Environment State\nHealthcare · Financial\nSolvability Gate"]
+        S["SURGEON\nQwen 2.5 1.5B\nLoRA via Unsloth"]
+        R["Reward Computer\n6 Signals · No LLM Judge\n45s per step on T4"]
+        C -->|inject error| E
+        E -->|corrupted snapshot 5 rows| S
+        S -->|JSON action tool_id column row_id| E
+        E -->|state delta| R
+        R -->|reward vector| S
+    end
+    TRL["TRL GRPO\nGroup Relative Policy Optimization"] -->|policy gradient| S
+    R -->|record_episode| C
+    C -->|tier escalates when rolling avg reward over threshold| C
 ```
-    CORRUPTOR                              SURGEON
-    (Rule-Based)                           (Live LLM + GRPO)
-         │                                      │
-         │   "Break this data."                 │   "Fix it."
-         ▼                                      ▼
-    ┌─────────────────────────────────────────────────┐
-    │              DataForge Environment               │
-    │                                                  │
-    │   Clean Dataset ──▶ Corrupted ──▶ Repaired?     │
-    │                                                  │
-    │   6 reward signals   │   Solvability gate        │
-    │   Soft-delete invariant │   KL regularization    │
-    └─────────────────────────────────────────────────┘
+
+## Before / After — What the Surgeon Fixes
+
+**Corrupted input the agent sees:**
+```json
+[
+  {"patient_id": 42, "name": "Maria Santos", "age": null,      "department_id": 3,    "admission_date": "2024-03-15"},
+  {"patient_id": 43, "name": "James Obi",    "age": "ERR_74", "department_id": 8742, "admission_date": "03/22/24"}
+]
+```
+*Row 0: null age. Row 1: type error on age, invalid department_id (8742 not in 1–20), wrong date format.*
+
+**Surgeon's output actions:**
+```json
+{"reasoning": "Row 0 has null age in numeric column — IMPUTE_MEDIAN fills from column distribution.", "tool_id": 0, "column": 2, "row_id": 0}
+{"reasoning": "ERR_74 is type error in age — IMPUTE_MEDIAN restores numeric value.", "tool_id": 0, "column": 2, "row_id": 1}
+{"reasoning": "Row 1 admission_date is MM/DD/YY — schema requires YYYY-MM-DD — CORRECT_FORMAT normalises.", "tool_id": 3, "column": 4, "row_id": 1}
 ```
 
-The **CORRUPTOR** uses 7 sabotage tools across 3 difficulty tiers to inject realistic data errors. The **SURGEON** (a PyTorch-native LLM fine-tuned with TRL GRPO) diagnoses each corruption and selects from 8 repair tools. As the Surgeon improves, the Corruptor escalates. The environment never runs out of challenge.
+**After repair:**
+```json
+[
+  {"patient_id": 42, "name": "Maria Santos", "age": 39,  "department_id": 3,    "admission_date": "2024-03-15"},
+  {"patient_id": 43, "name": "James Obi",    "age": 39,  "department_id": 8742, "admission_date": "2024-03-22"}
+]
+```
+*Nulls imputed. Type error fixed. Date normalised. department_id FK violation flagged for next step.*
 
 ---
 
@@ -83,7 +120,7 @@ The **CORRUPTOR** uses 7 sabotage tools across 3 difficulty tiers to inject real
 | **2** | 50–99 | Null clusters, date format swaps, cross-field inconsistencies | Pattern recognition, multi-cell correlation |
 | **3** | 100+ | Foreign key violations, duplicate rows with mutation | Relational reasoning, merge/delete decisions |
 
-Tier transitions use a **10-epoch warmup blend** with **5× higher KL beta** to prevent catastrophic forgetting when the distribution shifts.
+Tier transitions use a **10-epoch warmup blend** with fixed beta=0.01; dynamic beta identified as future improvement to prevent catastrophic forgetting when the distribution shifts.
 
 ## Quick Start
 
@@ -124,6 +161,16 @@ GET  /docs     → Interactive Swagger UI
 POST /reset    → DataForgeObservation
 POST /step     → {observation, reward, done, info}
 ```
+
+## Links
+
+| Resource | URL |
+|----------|-----|
+| 🤗 **Live HF Space** | https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env |
+| 📓 **Colab Notebook** | DataForge_Arena_Colab.ipynb |
+| 📝 **HF Blog Post** | https://huggingface.co/blog/Vivek567/dataforge-arena |
+| 💻 **GitHub** | https://github.com/vivekyarra/dataforge-arena |
+| 📊 **Training Log** | logs/training_log.csv |
 
 ---
 

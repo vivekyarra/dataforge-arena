@@ -6,42 +6,47 @@ from collections import deque
 from environment.schemas import CORRUPTOR_TOOLS, DEPT_MAP
 
 class Corruptor:
+    TIER_EPOCH_GATES  = {2: 30, 3: 70}
+    TIER_REWARD_GATES = {2: 0.5, 3: 0.9}
+
     def __init__(self):
         self._epoch = 0
         self._recent_rewards = deque(maxlen=20)
+        self._unlocked_tier = 1   # highest tier currently unlocked
 
     @property
     def difficulty(self) -> int:
-        """Dynamic difficulty = current tier. Always in sync."""
-        return self.current_tier()
+        return self._unlocked_tier
 
     def record_episode(self, surgeon_reward: float):
         self._recent_rewards.append(surgeon_reward)
         self._epoch += 1
+        self._update_tier()
+
+    def _rolling_avg(self) -> float:
+        if not self._recent_rewards:
+            return -99.0
+        return sum(self._recent_rewards) / len(self._recent_rewards)
+
+    def _update_tier(self):
+        for candidate_tier in [2, 3]:
+            if self._unlocked_tier >= candidate_tier:
+                continue
+            epoch_ok  = self._epoch >= self.TIER_EPOCH_GATES[candidate_tier]
+            reward_ok = self._rolling_avg() >= self.TIER_REWARD_GATES[candidate_tier]
+            if epoch_ok and reward_ok:
+                self._unlocked_tier = candidate_tier
+                print(f"[CORRUPTOR] Tier {candidate_tier} UNLOCKED — "
+                      f"epoch={self._epoch}, rolling_avg={self._rolling_avg():.3f}")
 
     def current_tier(self) -> int:
-        """
-        Sequential epoch-gated tiers with mixed warmup.
-        Tiers NEVER go backward.
-        """
-        if self._epoch < 50:
-            return 1
-        elif 50 <= self._epoch < 60:
-            # 10-epoch warmup: blend tier 1 and 2
-            p = (self._epoch - 50) / 10
-            return 2 if random.random() < (0.3 + 0.7 * p) else 1
-        elif 60 <= self._epoch < 100:
-            return 2
-        elif 100 <= self._epoch < 110:
-            # 10-epoch warmup: blend tier 2 and 3
-            p = (self._epoch - 100) / 10
-            return 3 if random.random() < (0.3 + 0.7 * p) else 2
-        else:
-            return 3
+        return self._unlocked_tier
 
     def is_transitioning(self) -> bool:
-        """True during warmup periods -- training script uses this to raise KL beta."""
-        return 50 <= self._epoch < 60 or 100 <= self._epoch < 110
+        for gate in self.TIER_EPOCH_GATES.values():
+            if gate <= self._epoch < gate + 10:
+                return True
+        return False
 
     def generate_episode(self, clean_df: pd.DataFrame,
                           max_retries: int = 10) -> tuple:
