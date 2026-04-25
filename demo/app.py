@@ -44,8 +44,12 @@ def load_llm():
         import torch
         print("Loading Live LLM Inference Pipeline...")
         device = 0 if torch.cuda.is_available() else -1
-        # Use Qwen 1.5B as the live inference model. In a real space, you'd load your PeftModel here.
-        llm_pipeline = pipeline("text-generation", model="Qwen/Qwen2.5-1.5B-Instruct", 
+        model_path = "outputs/dataforge-surgeon"
+        if not os.path.exists(model_path):
+            print("WARNING: Trained LoRA model not found. Falling back to base model.")
+            model_path = "Qwen/Qwen2.5-1.5B-Instruct"
+            
+        llm_pipeline = pipeline("text-generation", model=model_path, 
                                 device=device, torch_dtype=torch.bfloat16 if device==0 else torch.float32)
         print("Live LLM Loaded Successfully.")
         return True
@@ -131,96 +135,8 @@ def generate_episode(tier):
     """
     return display, stats_html
 
-
-def simulate_agent(agent_type):
-    if current_dirty[0] is None:
-        return ("<p style='color:#ef4444'>Generate an episode first!</p>", None, "", "")
-
-    dirty = current_dirty[0].copy()
-    gt = current_gt[0].copy()
-    meta = current_meta[0]
-    display_cols = [c for c in dirty.columns if c != "_is_deleted"]
-    acc_before = rc._field_accuracy(dirty, gt)
-    
-    # Initialize env explicitly for this rollout
-    env._state = dirty.copy()
-    env._ground_truth = gt.copy()
-    env._original_dirty = dirty.copy()
-    env._prev_accuracy = acc_before
-    env._starting_accuracy = acc_before
-    env._step_count = 0
-    env._action_log = []
-    import time
-    env._episode_start = time.time()
-
-    rollouts = []
-    
-    # 5 Steps max
-    for step in range(5):
-        if agent_type == "Naive Rule-Based Baseline":
-            # BRUTAL BASELINE: Find first null or error, and blindly delete the row.
-            target_row, target_col = None, None
-            for r in range(len(env._state)):
-                for c_idx, c_name in enumerate(display_cols):
-                    cell = env._state.at[r, c_name] if c_name in env._state.columns else None
-                    if pd.isna(cell) or str(cell).startswith("ERR_"):
-                        target_row, target_col = r, c_idx
-                        break
-                if target_row is not None: break
-            
-            if target_row is None:
-                action = SurgeonAction(reasoning="No errors found.", tool_id=7, column=0, row_id=0)
-            else:
-                action = SurgeonAction(reasoning="Naive baseline: Error found. Deleting entire row.", tool_id=4, column=target_col, row_id=target_row)
-            
-            # Apply Action
-            obs, reward_dict, done, info = env.step(action)
-            rollouts.append({
-                "reasoning": action.reasoning,
-                "tool_name": SURGEON_TOOLS[action.tool_id]["name"],
-                "reward": reward_dict["total"],
-                "advantage": reward_dict["total"] - 0.5,
-                "selected": True,
-                "is_baseline": True
-            })
-            if done: break
-
-        else:
-            # LIVE LLM INFERENCE
-            if not load_llm():
-                return ("<p style='color:#ef4444'>Failed to load LLM locally (Check CUDA/RAM).</p>", None, "", "")
-            
-            obs = env._make_observation()
-            prompt = build_prompt(obs)
-            
-            # Formulate chat
-            messages = [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": f"Observation: {obs.model_dump_json()}\\nOutput valid JSON only."}
-            ]
-            
-            try:
-                outputs = llm_pipeline(messages, max_new_tokens=256, temperature=0.7, top_p=0.9, do_sample=True, num_return_sequences=1)
-                generated_text = outputs[0]["generated_text"][-1]["content"]
-                action = robust_parse_action(generated_text)
-            except Exception as e:
-                print(f"LLM Inference failed: {e}")
-                # Fallback to a safe action if the model outputs absolute garbage
-                action = SurgeonAction(reasoning=f"LLM parse failure: {str(e)[:40]}", tool_id=7, column=0, row_id=0)
-
-            obs, reward_dict, done, info = env.step(action)
-            
-            rollouts.append({
-                "reasoning": action.reasoning,
-                "tool_name": SURGEON_TOOLS[action.tool_id]["name"],
-                "reward": reward_dict["total"],
-                "advantage": reward_dict["total"] - 0.1,
-                "selected": True,
-                "is_baseline": False
-            })
-            if done: break
-
-    acc_after = rc._field_accuracy(env._state, gt)
+def render_ui_state(rollouts, current_state, gt, acc_before, agent_type):
+    acc_after = rc._field_accuracy(current_state, gt)
     success_rate_improvement = ((acc_after - acc_before) / (1.0 - acc_before)) * 100 if acc_before < 1.0 else 0
 
     rollout_html = f"""
@@ -245,10 +161,8 @@ def simulate_agent(agent_type):
     for i, r in enumerate(rollouts):
         if r.get("is_baseline"):
             css = "rollout-loser" if r.get("reward", 0) < 0 else "rollout-winner"
-            adv_color = "#ef4444" if r.get("reward", 0) < 0 else "#10b981"
         else:
             css = "rollout-winner"
-            adv_color = "#10b981" if r.get("reward", 0) > 0 else "#ef4444"
             
         reasoning_text = r.get('reasoning', '').replace('"', '&quot;')
         if len(reasoning_text) > 55: reasoning_text = reasoning_text[:55] + "..."
@@ -262,8 +176,7 @@ def simulate_agent(agent_type):
         </div>"""
 
     rollout_html += "</div>"
-
-    repaired_display = env._state[[c for c in env._state.columns if c != "_is_deleted"]].head(8).copy()
+    repaired_display = current_state[[c for c in current_state.columns if c != "_is_deleted"]].head(8).copy()
 
     before_html = f"""<div class='metric-card'>
         <div style='color:#94a3b8; font-size:11px; letter-spacing:1px; margin-bottom:4px; font-weight:600;'>BEFORE</div>
@@ -276,6 +189,109 @@ def simulate_agent(agent_type):
     </div>"""
 
     return rollout_html, repaired_display, before_html, after_html
+
+
+def simulate_agent(agent_type):
+    if current_dirty[0] is None:
+        yield ("<p style='color:#ef4444'>Generate an episode first!</p>", None, "", "")
+        return
+
+    dirty = current_dirty[0].copy()
+    gt = current_gt[0].copy()
+    meta = current_meta[0]
+    display_cols = [c for c in dirty.columns if c != "_is_deleted"]
+    acc_before = rc._field_accuracy(dirty, gt)
+    
+    # Initialize env explicitly for this rollout
+    env._state = dirty.copy()
+    env._ground_truth = gt.copy()
+    env._original_dirty = dirty.copy()
+    env._prev_accuracy = acc_before
+    env._starting_accuracy = acc_before
+    env._step_count = 0
+    env._action_log = []
+    import time
+    env._episode_start = time.time()
+
+    rollouts = []
+    
+    # 5 Steps max
+    for step in range(5):
+        if agent_type == "Naive Rule-Based Baseline":
+            target_row, target_col = None, None
+            action_tool = 7
+            action_reason = "No errors found."
+            
+            for r in range(len(env._state)):
+                for c_idx, c_name in enumerate(display_cols):
+                    cell = env._state.at[r, c_name] if c_name in env._state.columns else None
+                    if pd.isna(cell):
+                        target_row, target_col = r, c_idx
+                        action_tool = 0 # IMPUTE_MEDIAN
+                        action_reason = "Naive baseline: Null found. Imputing median."
+                        break
+                    elif str(cell).startswith("ERR_"):
+                        target_row, target_col = r, c_idx
+                        action_tool = 4 # DELETE_ROW
+                        action_reason = "Naive baseline: Type error found. Deleting row."
+                        break
+                if target_row is not None: break
+            
+            action = SurgeonAction(reasoning=action_reason, tool_id=action_tool, 
+                                   column=target_col if target_col else 0, 
+                                   row_id=target_row if target_row else 0)
+            
+            # Apply Action
+            obs, reward_dict, done, info = env.step(action)
+            rollouts.append({
+                "reasoning": action.reasoning,
+                "tool_name": SURGEON_TOOLS[action.tool_id]["name"],
+                "reward": reward_dict["total"],
+                "advantage": reward_dict["total"] - 0.5,
+                "selected": True,
+                "is_baseline": True
+            })
+            
+            yield render_ui_state(rollouts, env._state, gt, acc_before, agent_type)
+            if done: break
+
+        else:
+            # LIVE LLM INFERENCE
+            if not load_llm():
+                yield ("<p style='color:#ef4444'>Failed to load LLM locally (Check CUDA/RAM).</p>", None, "", "")
+                return
+            
+            obs = env._make_observation()
+            prompt = build_prompt(obs)
+            
+            # Formulate chat
+            messages = [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": f"Observation: {obs.model_dump_json()}\\nOutput valid JSON only."}
+            ]
+            
+            try:
+                outputs = llm_pipeline(messages, max_new_tokens=256, temperature=0.1, do_sample=False, num_return_sequences=1)
+                generated_text = outputs[0]["generated_text"][-1]["content"]
+                action = robust_parse_action(generated_text)
+            except Exception as e:
+                print(f"LLM Inference failed: {e}")
+                # Fallback to a safe action if the model outputs absolute garbage
+                action = SurgeonAction(reasoning=f"LLM parse failure: {str(e)[:40]}", tool_id=7, column=0, row_id=0)
+
+            obs, reward_dict, done, info = env.step(action)
+            
+            rollouts.append({
+                "reasoning": action.reasoning,
+                "tool_name": SURGEON_TOOLS[action.tool_id]["name"],
+                "reward": reward_dict["total"],
+                "advantage": reward_dict["total"] - 0.1,
+                "selected": True,
+                "is_baseline": False
+            })
+            
+            yield render_ui_state(rollouts, env._state, gt, acc_before, agent_type)
+            if done: break
 
 
 # ---------- Gradio UI ---------------------------------------------
