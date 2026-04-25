@@ -63,7 +63,7 @@ async def info():
         "openenv_compliant": True,
         "surgeon_tools": {k: v["name"] for k, v in SURGEON_TOOLS.items()},
         "corruption_tiers": 3,
-        "reward_signals": ["accuracy_delta", "accuracy_absolute", "tool_logic",
+        "reward_signals": ["accuracy_delta", "tool_logic",
                           "reasoning", "efficiency", "anti_hack"],
         "endpoints": ["/health", "/info", "/reset", "/step", "/docs"],
     }

@@ -1,73 +1,128 @@
-import re
 import json
+import re
+
 from environment.env import SurgeonAction
 
 
+def _completion_to_text(completion) -> str:
+    if isinstance(completion, str):
+        return completion
+    if isinstance(completion, dict):
+        if "content" in completion:
+            return str(completion["content"])
+        return json.dumps(completion)
+    if isinstance(completion, list):
+        parts = []
+        for item in completion:
+            if isinstance(item, dict) and "content" in item:
+                parts.append(str(item["content"]))
+            else:
+                parts.append(str(item))
+        return "\n".join(parts)
+    return str(completion)
+
+
+def _coerce_int(value, default: int) -> int:
+    try:
+        if value is None:
+            return default
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return default
+
+
 def _clamp_action(reasoning: str, tool_id: int, column: int, row_id: int) -> SurgeonAction:
-    """Construct a SurgeonAction with clamped values. BUG 4 FIX."""
     return SurgeonAction(
         reasoning=reasoning,
-        tool_id=min(max(int(tool_id), 0), 7),
-        column=max(int(column), 0),
-        row_id=max(int(row_id), 0),
+        tool_id=min(max(_coerce_int(tool_id, 7), 0), 7),
+        column=max(_coerce_int(column, 0), 0),
+        row_id=max(_coerce_int(row_id, 0), 0),
     )
 
 
-def robust_parse_action(completion: str) -> SurgeonAction:
+def _extract_balanced_json_object(text: str) -> str | None:
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        for idx in range(start, len(text)):
+            ch = text[idx]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:idx + 1]
+        start = text.find("{", start + 1)
+    return None
+
+
+def robust_parse_action(completion) -> SurgeonAction:
     """
     Never crash on malformed model output.
     Try 3 strategies before giving up.
     All strategies clamp tool_id to 0-7.
     """
-    text = completion.strip()
-    
-    # Strategy 1: direct JSON parse
+    text = _completion_to_text(completion).strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE | re.MULTILINE).strip()
+
     try:
-        d = json.loads(text)
+        parsed = json.loads(text)
+        if not isinstance(parsed, dict):
+            raise ValueError("expected object")
         return _clamp_action(
-            str(d.get("reasoning", "")),
-            d.get("tool_id", 7),
-            d.get("column", 0),
-            d.get("row_id", 0),
+            str(parsed.get("reasoning", "")),
+            parsed.get("tool_id", 7),
+            parsed.get("column", 0),
+            parsed.get("row_id", 0),
         )
     except Exception:
         pass
-    
-    # Strategy 2: extract JSON object from surrounding text
-    match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
-    if match:
-        candidate = match.group()
-        # Fix common model mistakes
-        candidate = re.sub(r',\s*}', '}', candidate)   # trailing comma
-        candidate = re.sub(r"'", '"', candidate)         # single quotes
-        candidate = re.sub(r'(\w+):', r'"\1":', candidate)  # unquoted keys
-        candidate = re.sub(r'"{2,}', '"', candidate)    # double-double quotes
+
+    candidate = _extract_balanced_json_object(text)
+    if candidate:
+        candidate = re.sub(r",\s*}", "}", candidate)
+        candidate = re.sub(r"'", '"', candidate)
+        candidate = re.sub(r"(\w+):", r'"\1":', candidate)
+        candidate = re.sub(r'"{2,}', '"', candidate)
         try:
-            d = json.loads(candidate)
+            parsed = json.loads(candidate)
+            if not isinstance(parsed, dict):
+                raise ValueError("expected object")
             return _clamp_action(
-                str(d.get("reasoning", "")),
-                d.get("tool_id", 7),
-                d.get("column", 0),
-                d.get("row_id", 0),
+                str(parsed.get("reasoning", "")),
+                parsed.get("tool_id", 7),
+                parsed.get("column", 0),
+                parsed.get("row_id", 0),
             )
         except Exception:
             pass
-    
-    # Strategy 3: field-by-field regex extraction
+
     try:
-        reasoning_m = re.search(r'"reasoning"\s*:\s*"([^"]*)"', text)
-        tool_m      = re.search(r'"tool_id"\s*:\s*(\d+)', text)
-        col_m       = re.search(r'"column"\s*:\s*(\d+)', text)
-        row_m       = re.search(r'"row_id"\s*:\s*(\d+)', text)
-        
-        if all([reasoning_m, tool_m, col_m, row_m]):
+        reasoning_match = re.search(r'["\']reasoning["\']\s*:\s*["\']([^"\']*)["\']', text)
+        tool_match = re.search(r'["\']tool_id["\']\s*:\s*(-?\d+(?:\.\d+)?)', text)
+        column_match = re.search(r'["\']column["\']\s*:\s*(-?\d+(?:\.\d+)?)', text)
+        row_match = re.search(r'["\']row_id["\']\s*:\s*(-?\d+(?:\.\d+)?)', text)
+        if all([reasoning_match, tool_match, column_match, row_match]):
             return _clamp_action(
-                reasoning_m.group(1),
-                int(tool_m.group(1)),
-                int(col_m.group(1)),
-                int(row_m.group(1)),
+                reasoning_match.group(1),
+                tool_match.group(1),
+                column_match.group(1),
+                row_match.group(1),
             )
     except Exception:
         pass
-    
+
     raise ValueError(f"Cannot parse: {text[:80]}")
