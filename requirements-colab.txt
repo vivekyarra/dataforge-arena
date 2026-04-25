@@ -1,0 +1,42 @@
+--extra-index-url https://download.pytorch.org/whl/cu124
+
+# Colab T4-safe CUDA stack. Keep torch, torchvision, torchaudio, and xformers
+# on the same PyTorch 2.6/cu124 ABI or pip may try to upgrade torch mid-run.
+torch==2.6.0+cu124
+torchvision==0.21.0+cu124
+torchaudio==2.6.0+cu124
+xformers==0.0.29.post3
+
+# GRPO/Unsloth stack known to resolve together on Python 3.12 Colab.
+unsloth[cu124-torch260]==2026.4.8
+unsloth_zoo==2026.4.8
+trl==0.24.0
+peft==0.19.1
+transformers==4.56.2
+datasets==3.6.0
+accelerate==1.6.0
+bitsandbytes==0.49.2
+huggingface_hub==0.36.2
+torchao==0.13.0
+
+# mergekit 0.1.4 is optional for training, but TRL/Unsloth can probe for it.
+# Its exact transitive pins are included here so the resolver has one answer.
+mergekit==0.1.4
+pydantic==2.10.6
+click==8.2.1
+safetensors==0.5.3
+tqdm==4.67.1
+
+# Project, tests, and demo dependencies.
+openenv==0.1.13
+numpy==2.2.6
+pandas==2.2.3
+scipy==1.15.3
+matplotlib==3.10.0
+faker==40.15.0
+pytest==9.0.3
+gradio==6.13.0
+fastapi==0.136.1
+uvicorn==0.46.0
+python-multipart==0.0.26
+httpx==0.28.1

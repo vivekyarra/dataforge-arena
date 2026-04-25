@@ -2,12 +2,11 @@
 torch>=2.10.0,<2.11.0
 unsloth==2026.4.8
 trl==0.24.0
-mergekit>=0.1.4
-transformers>=4.40.0
-datasets>=2.19.0
-accelerate>=0.29.0
-bitsandbytes>=0.43.0
-peft>=0.14.0
+transformers==4.56.2
+datasets==3.6.0
+accelerate>=1.4.0,<2.0.0
+bitsandbytes>=0.45.5,!=0.46.0,!=0.48.0
+peft>=0.18.0
 torchao==0.16.0
 llm-blender==0.0.2
 weave==0.52.37
@@ -19,9 +18,9 @@ openenv>=0.1.0
 pandas>=2.2.0
 numpy>=1.26.0
 faker>=24.0.0
-pydantic>=2.12.0,<3.0.0
+pydantic>=2.10.0,<3.0.0
 scipy>=1.12.0
-click>=8.1.8,!=8.2.*
+click>=8.1.8
 
 # Server & Demo
 fastapi>=0.110.0

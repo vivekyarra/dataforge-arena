@@ -143,7 +143,7 @@ python demo/app.py
 
 For a zero-setup artifact, open [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html) directly in a browser.
 
-For Colab GPU training, use [`DataForge_Arena_Colab_FIXED.ipynb`](./DataForge_Arena_Colab_FIXED.ipynb). The original [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb) is still in the repo, but the fixed notebook is the recommended path. It uses a safer install flow, verifies the indexed observation prompt format before training, avoids force-killing the runtime, and includes an optional Hugging Face upload cell for checkpoint publishing.
+For Colab GPU training, use [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb). It installs the pinned [`requirements-colab.txt`](./requirements-colab.txt) stack, verifies the indexed observation prompt format before training, avoids force-killing the runtime, and includes an optional Hugging Face upload cell for checkpoint publishing.
 
 The current T4 defaults now bias toward denser learning and lower cost: `150` max steps, `4` generations per prompt, `80`-token completions, `1280` sequence length, a smaller episode pool, GRPO warmup, and gentler early reward shaping so the run can finish comfortably under the 90-minute Colab cap.
 
@@ -186,8 +186,8 @@ class DataForgeEnv(BaseEnv):
 - [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html): standalone browser artifact for zero-setup judge interaction
 - [`logs/training_curve.png`](./logs/training_curve.png): final Colab reward curve artifact
 - [`tests/`](./tests): regression tests with `60` core checks plus `69` stress checks for parser fuzzing, reward bounds, tool coverage, schema integrity, and evidence files
-- [`DataForge_Arena_Colab_FIXED.ipynb`](./DataForge_Arena_Colab_FIXED.ipynb): recommended Colab notebook for the current stable training path
-- [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb): earlier Colab notebook preserved for reference
+- [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb): recommended Colab notebook for the current stable training path
+- [`requirements-colab.txt`](./requirements-colab.txt): pinned Colab dependency stack for the notebook
 - [`pitch_script.md`](./pitch_script.md): three-minute judge narration with a demo moment
 - [`final_submission_summary.md`](./final_submission_summary.md): concise final evidence and pitch positioning
 
@@ -196,7 +196,7 @@ class DataForgeEnv(BaseEnv):
 | Resource | URL |
 |----------|-----|
 | Live HF Space | https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env |
-| Colab Notebook | [`DataForge_Arena_Colab_FIXED.ipynb`](./DataForge_Arena_Colab_FIXED.ipynb) |
+| Colab Notebook | [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb) |
 | Browser Artifact | [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html) |
 | Judge Pitch Script | [`pitch_script.md`](./pitch_script.md) |
 | HF Blog Post | https://huggingface.co/blog/Vivek567/dataforge-arena |
