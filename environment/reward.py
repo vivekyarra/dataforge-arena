@@ -1,96 +1,247 @@
+import time
 import pandas as pd
 import numpy as np
-import time
-import re
-from environment.schemas import SURGEON_TOOLS
+
 
 class RewardComputer:
-    
-    def compute(self, state: pd.DataFrame, ground_truth: pd.DataFrame,
-                action, original_dirty: pd.DataFrame,
-                prev_accuracy: float, episode_start: float,
-                step_count: int, starting_accuracy: float = None,
-                previous_state: pd.DataFrame = None) -> dict:
-        
-        rewards = {}
-        
-        # Timeout hard stop
-        elapsed = time.time() - episode_start
-        if elapsed > 30:
+
+    def compute(self, state, ground_truth, action, original_dirty, prev_accuracy,
+                episode_start, step_count, starting_accuracy=None, previous_state=None,
+                schema=None) -> dict:
+
+        if time.time() - episode_start > 30:
             return {"total": -3.0, "timeout": True}
-        
-        # R1: ACCURACY DELTA -- primary learning signal
-        # Delta x 50 means: fixing one cell in a 400-cell dataset
-        # = +0.0025 delta x 50 = +0.125 reward per correct fix
+
+        rewards = {}
         current_acc = self._field_accuracy(state, ground_truth)
         delta = current_acc - prev_accuracy
-        rewards["accuracy_delta"] = delta * 120.0
-        rewards["_current_accuracy"] = current_acc  # stored for next step
+        rewards["accuracy_delta"] = delta * 250.0
+        rewards["_current_accuracy"] = current_acc
 
-        # R2: TOOL LOGIC -- heuristic process supervision, no LLM
-        rewards["tool_logic"] = self._score_tool_logic(action, state, ground_truth)
-
-        # R3: REASONING QUALITY -- keyword heuristic, no LLM
-        rewards["reasoning"] = self._score_reasoning(action, state)
-
-        # R4: EFFICIENCY -- reward good repair targets, penalize wrong actions
-        rewards["efficiency"] = self._score_efficiency(
-            action,
-            state,
-            ground_truth,
-            previous_state=previous_state,
+        rewards["constraint_alignment"] = self._score_constraint_alignment(
+            action, state, ground_truth, schema
         )
-
-        # R5: ANTI-HACK -- soft-delete rate check
+        rewards["schema_alignment"] = self._score_schema_alignment(action, state, schema)
+        rewards["outlier_targeting"] = self._score_outlier_targeting(
+            action, state, ground_truth, previous_state
+        )
+        rewards["reasoning_quality"] = self._score_causal_reasoning(action, state, schema)
+        rewards["parse_bonus"] = 0.5 if action.reasoning.startswith("EXACT_PARSE:") else 0.0
         rewards["anti_hack"] = self._detect_shortcuts(state, original_dirty)
 
-        total = (
+        rewards["total"] = (
             rewards["accuracy_delta"] +
-            rewards["tool_logic"] +
-            rewards["reasoning"] +
-            rewards["efficiency"] +
+            rewards["constraint_alignment"] +
+            rewards["schema_alignment"] +
+            rewards["outlier_targeting"] +
+            rewards["reasoning_quality"] +
+            rewards["parse_bonus"] +
             rewards["anti_hack"]
         )
-        rewards["total"] = total
-        
-        # NOTE: improvement > 0.05 rarely triggers for single cell fixes.
-        # It functionally acts as an early termination gate for massive structural
-        # fixes (like duplicate_row_mutate) that instantly restore >5% accuracy.
+
         start_acc = starting_accuracy if starting_accuracy is not None else prev_accuracy
-        improvement = current_acc - start_acc
-        rewards["episode_complete"] = (current_acc >= 0.999) or (improvement > 0.05)
-        
+        rewards["episode_complete"] = (current_acc >= 0.999) or ((current_acc - start_acc) > 0.05)
         return rewards
 
-    def _field_accuracy(self, state: pd.DataFrame,
-                         ground_truth: pd.DataFrame) -> float:
-        """
-        Soft-delete aware accuracy.
-        '_is_deleted' rows are counted as wrong on all fields.
-        Handles shape mismatch from duplicate_row_mutate by trimming.
-        """
-        # Remove internal bookkeeping columns
+    def _score_constraint_alignment(self, action, state, ground_truth, schema) -> float:
+        if schema is None:
+            return 0.0
+        try:
+            display_cols = [c for c in state.columns if c != "_is_deleted"]
+            if action.column >= len(display_cols):
+                return -0.5
+            col_name = display_cols[action.column]
+            cell_val = state.iloc[action.row_id][col_name]
+            col_schema = schema.get(col_name, {})
+            violation = self._detect_constraint_violation(cell_val, col_name, col_schema, state, action.row_id)
+
+            tool_name_map = {
+                0: "IMPUTE_MEDIAN", 1: "IMPUTE_MODE", 2: "IMPUTE_FORWARD_FILL",
+                3: "CORRECT_FORMAT", 4: "DELETE_ROW", 5: "MERGE_DUPLICATE",
+                6: "FLAG_UNCERTAIN", 7: "NO_OP",
+            }
+            tool = tool_name_map.get(action.tool_id, "NO_OP")
+
+            if violation is None:
+                if tool == "NO_OP":
+                    return +0.6
+                return -1.0
+
+            if violation == "null_numeric" and tool == "IMPUTE_MEDIAN":
+                return +2.0
+            if violation == "null_categorical" and tool in ("IMPUTE_MODE", "IMPUTE_FORWARD_FILL"):
+                return +2.0
+            if violation == "range" and tool == "CORRECT_FORMAT":
+                return +2.0
+            if violation == "type_error" and tool == "CORRECT_FORMAT":
+                return +2.0
+            if violation == "enum_violation" and tool == "CORRECT_FORMAT":
+                return +1.5
+            if violation == "fk_mismatch" and tool == "CORRECT_FORMAT":
+                return +2.0
+            if violation is not None and tool == "NO_OP":
+                return -2.0
+            if violation is not None and tool != "NO_OP":
+                return +0.5
+            return 0.0
+        except Exception:
+            return 0.0
+
+    def _detect_constraint_violation(self, cell_val, col_name, col_schema, state, row_id):
+        col_type = col_schema.get("type", "str")
+
+        is_null = pd.isna(cell_val) or str(cell_val).strip() in ("", "None", "nan", "NaN")
+        if is_null:
+            if col_type in ("int", "float"):
+                return "null_numeric"
+            return "null_categorical"
+
+        cell_str = str(cell_val)
+
+        if cell_str.startswith("ERR_"):
+            return "type_error"
+        if col_type in ("int", "float"):
+            try:
+                numeric_val = float(cell_str)
+            except (ValueError, TypeError):
+                return "type_error"
+            range_constraint = col_schema.get("range")
+            if range_constraint and not (range_constraint[0] <= numeric_val <= range_constraint[1]):
+                return "range"
+
+        allowed_values = col_schema.get("values")
+        if allowed_values and cell_str not in allowed_values:
+            return "enum_violation"
+
+        if col_name == "department_id" and "department_name" in state.columns:
+            DEPT_MAP = {
+                1: "Cardiology", 2: "Neurology", 3: "Oncology", 4: "Pediatrics",
+                5: "Orthopedics", 6: "Radiology", 7: "Emergency", 8: "Surgery",
+                9: "Psychiatry", 10: "General",
+            }
+            try:
+                dept_id = int(float(cell_str))
+                expected_name = DEPT_MAP.get(dept_id)
+                actual_name = str(state.at[state.index[row_id], "department_name"])
+                if expected_name and expected_name != actual_name:
+                    return "fk_mismatch"
+            except Exception:
+                pass
+
+        return None
+
+    def _score_schema_alignment(self, action, state, schema) -> float:
+        if schema is None:
+            return 0.0
+        try:
+            display_cols = [c for c in state.columns if c != "_is_deleted"]
+            if action.column >= len(display_cols):
+                return -0.5
+            col_name = display_cols[action.column]
+            col_type = schema.get(col_name, {}).get("type", "str")
+
+            type_to_correct_impute = {
+                "int": 0, "float": 0,
+                "str": 1, "email": 1, "phone": 1, "date": 2,
+            }
+            correct_impute = type_to_correct_impute.get(col_type, 1)
+            impute_tools = {0, 1, 2}
+
+            if action.tool_id in impute_tools:
+                if action.tool_id == correct_impute:
+                    return +1.0
+                return -0.5
+            return 0.0
+        except Exception:
+            return 0.0
+
+    def _score_outlier_targeting(self, action, state, ground_truth, previous_state) -> float:
+        target_state = previous_state if previous_state is not None else state
+        try:
+            display_cols = [c for c in target_state.columns if c != "_is_deleted"]
+            if action.column >= len(display_cols):
+                return 0.0
+            col_name = display_cols[action.column]
+            col_data = pd.to_numeric(target_state[col_name], errors="coerce").dropna()
+            if len(col_data) < 4:
+                return 0.0
+            mean = col_data.mean()
+            std = col_data.std()
+            if std < 1e-9:
+                return 0.0
+            cell_val = pd.to_numeric(target_state.iloc[action.row_id][col_name], errors="coerce")
+            if pd.isna(cell_val):
+                return 0.0
+            z_score = abs(cell_val - mean) / std
+            if z_score > 3.0:
+                return +0.5
+            if z_score > 2.0:
+                return +0.2
+            if z_score < 0.5 and action.tool_id not in (6, 7):
+                return -0.3
+            return 0.0
+        except Exception:
+            return 0.0
+
+    def _score_causal_reasoning(self, action, state, schema) -> float:
+        reasoning = action.reasoning
+        if reasoning.startswith("EXACT_PARSE: "):
+            reasoning = reasoning[len("EXACT_PARSE: "):]
+        reasoning = reasoning.strip().lower()
+
+        if len(reasoning) < 5:
+            return -0.3
+        if len(reasoning) > 200:
+            return -0.1
+
+        score = 0.0
+
+        try:
+            display_cols = [c for c in state.columns if c != "_is_deleted"]
+            if action.column < len(display_cols):
+                col_name = display_cols[action.column].lower()
+                if col_name in reasoning or col_name.replace("_", " ") in reasoning:
+                    score += 0.3
+        except Exception:
+            pass
+
+        violation_keywords = {
+            "null": 0.2, "missing": 0.2, "none": 0.1, "nan": 0.1,
+            "range": 0.3, "exceed": 0.3, "above": 0.2, "below": 0.2,
+            "max": 0.2, "min": 0.2, "constraint": 0.2,
+            "type": 0.2, "err_": 0.2, "format": 0.2, "invalid": 0.2,
+            "outlier": 0.3, "anomaly": 0.2, "inconsistent": 0.3,
+            "foreign": 0.3, "fk": 0.3, "mismatch": 0.3, "department": 0.2,
+            "duplicate": 0.2, "birth": 0.2, "implies": 0.3, "therefore": 0.2,
+        }
+        for kw, bonus in violation_keywords.items():
+            if kw in reasoning:
+                score += bonus
+                break
+
+        causal_connectors = ["because", "since", "implies", "therefore", "so", "hence", "means"]
+        if any(c in reasoning for c in causal_connectors):
+            score += 0.2
+
+        return min(score, 0.8)
+
+    def _field_accuracy(self, state: pd.DataFrame, ground_truth: pd.DataFrame) -> float:
         state_vals = state.drop(columns=["_is_deleted"], errors="ignore")
         gt_vals = ground_truth.copy()
-        
-        # BUG 7 FIX: Handle shape mismatch from duplicate_row_mutate
-        # Trim both to common length so extra rows don't poison accuracy to 51%
+
         min_rows = min(len(state_vals), len(gt_vals))
         state_vals = state_vals.iloc[:min_rows]
         gt_vals = gt_vals.iloc[:min_rows]
-        
+
         if state_vals.shape[1] != gt_vals.shape[1]:
-            # Column count mismatch -- something very wrong
             return 0.0
-        
-        # Penalize extra rows in state (duplicates the agent hasn't merged/deleted)
+
         extra_rows = len(state) - len(ground_truth)
         extra_penalty = 0.0
         if extra_rows > 0:
             total_cells_gt = len(ground_truth) * len(ground_truth.columns)
             extra_penalty = (extra_rows * len(ground_truth.columns)) / max(total_cells_gt, 1)
-        
-        # Element-wise comparison (handles NaN: NaN != anything = wrong)
+
         try:
             matches = (state_vals.values == gt_vals.values)
             null_mask = pd.isna(state_vals.values)
@@ -101,132 +252,6 @@ class RewardComputer:
             return max(0.0, base_acc - extra_penalty)
         except Exception:
             return 0.0
-
-    def _score_tool_logic(self, action, state, ground_truth) -> float:
-        try:
-            row_data = state.iloc[action.row_id].drop(["_is_deleted"], errors="ignore")
-            gt_row = ground_truth.iloc[action.row_id] if action.row_id < len(ground_truth) else None
-        except IndexError:
-            return -1.0
-        
-        if gt_row is None:
-            # Row exists in state but not in ground_truth (duplicate)
-            tool_name = SURGEON_TOOLS[action.tool_id]["name"]
-            if tool_name in ("DELETE_ROW", "MERGE_DUPLICATE"):
-                return +1.5  # correct to delete/merge a duplicate row
-            return -0.5
-        
-        cell_val = row_data.iloc[action.column]
-        gt_val = gt_row.iloc[action.column]
-        
-        is_null = pd.isna(cell_val)
-        is_correct = (not is_null) and (cell_val == gt_val)
-        
-        # NaN-safe comparison: treat NaN != anything as an error
-        try:
-            mismatches = sum(1 for a, b in zip(row_data.values, gt_row.values)
-                            if pd.isna(a) or pd.isna(b) or str(a) != str(b))
-            error_rate_row = mismatches / max(len(row_data), 1)
-        except Exception:
-            error_rate_row = 0.0
-        
-        null_rate_col = state.iloc[:, action.column].isna().mean()
-        
-        tool_name = SURGEON_TOOLS[action.tool_id]["name"]
-        
-        # Scoring matrix
-        if tool_name in ("IMPUTE_MEDIAN", "IMPUTE_MODE", "IMPUTE_FORWARD_FILL"):
-            if is_null:       return +1.0
-            if is_correct:    return -1.0  # don't impute correct cells
-            return -0.5
-        
-        if tool_name == "CORRECT_FORMAT":
-            if is_null:       return -0.5  # can't format a null
-            if not is_correct: return +1.0
-            return -0.5
-        
-        if tool_name == "DELETE_ROW":
-            if error_rate_row > 0.60: return +1.5   # heavily corrupted row
-            if error_rate_row < 0.30: return -2.0   # mostly good row
-            return 0.0
-        
-        if tool_name == "NO_OP":
-            if is_correct:    return +0.5   # correct to skip a good cell
-            return -0.5                      # wrong to skip a bad cell
-        
-        if tool_name == "FLAG_UNCERTAIN":
-            if null_rate_col > 0.50: return +0.3
-            return 0.0
-        
-        return 0.0
-
-    def _score_reasoning(self, action, state) -> float:
-        """Fast keyword heuristic -- NOT LLM-as-judge."""
-        reasoning = action.reasoning.strip().lower()
-        
-        # Anti-hallucination gate: empty/trivial reasoning gets small penalty
-        if len(reasoning) < 10:
-            return -0.1
-        if len(reasoning.split()) > 15 or len(reasoning) > 120:
-            return -0.2
-            
-        bonus = 0.0
-        
-        try:
-            cell_val = state.iloc[action.row_id, action.column]
-            is_null = pd.isna(cell_val)
-        except IndexError:
-            return 0.0
-
-        tool_name = SURGEON_TOOLS[action.tool_id]["name"]
-        if is_null and tool_name == "NO_OP":
-            return 0.0
-        if (not is_null) and tool_name in ("IMPUTE_MEDIAN", "IMPUTE_MODE", "IMPUTE_FORWARD_FILL"):
-            return 0.0
-        
-        if is_null and any(kw in reasoning for kw in
-                           ["null", "missing", "empty", "none", "nan"]):
-            bonus += 0.3
-        
-        if not is_null and any(kw in reasoning for kw in
-                               ["format", "type", "invalid", "incorrect",
-                                "wrong", "error"]):
-            bonus += 0.3
-
-        if any(kw in reasoning for kw in
-               ["because", "therefore", "since", "indicates", "suggests"]):
-            bonus += 0.1
-
-        return min(bonus, 0.4)
-
-    def _score_efficiency(self, action, state, ground_truth, previous_state=None) -> float:
-        """
-        Reward repair attempts on bad targets and penalize edits to good cells.
-        Accuracy delta still scores the outcome; this only shapes target choice.
-        """
-        target_state = previous_state if previous_state is not None else state
-        tool_name = SURGEON_TOOLS[action.tool_id]["name"]
-
-        try:
-            if action.row_id >= len(ground_truth):
-                return 0.5 if tool_name in ("DELETE_ROW", "MERGE_DUPLICATE") else 0.0
-            cell_val = target_state.iloc[action.row_id, action.column]
-            gt_val = ground_truth.iloc[action.row_id, action.column]
-            is_correct = self._values_match(cell_val, gt_val)
-        except IndexError:
-            return -0.5
-
-        # Penalize modifying a correct cell
-        if is_correct and tool_name not in ("NO_OP", "FLAG_UNCERTAIN"):
-            return -1.0
-
-        repair_tools = ("IMPUTE_MEDIAN", "IMPUTE_MODE", "IMPUTE_FORWARD_FILL", "CORRECT_FORMAT")
-        if not is_correct and tool_name in repair_tools:
-            return 0.5
-        if not is_correct and tool_name == "NO_OP":
-            return -0.75
-
-        return 0.0
 
     @staticmethod
     def _values_match(cell_val, gt_val) -> bool:
@@ -240,10 +265,6 @@ class RewardComputer:
             return str(cell_val) == str(gt_val)
 
     def _detect_shortcuts(self, state, original_dirty) -> float:
-        """
-        Anti-hack: soft-delete rate.
-        If agent has soft-deleted >25% of rows, it's gaming completeness.
-        """
         if "_is_deleted" in state.columns:
             deleted_rate = state["_is_deleted"].mean()
             if deleted_rate > 0.25:

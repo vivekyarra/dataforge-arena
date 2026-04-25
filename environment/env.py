@@ -29,6 +29,8 @@ class DataForgeObservation(BaseModel):
     total_errors: int
     error_rate_pct: float
     action_history: list
+    violation_type: str = ""
+    column_stats: str = ""
 
 
 class DataForgeEnv(BaseEnv):
@@ -96,6 +98,7 @@ class DataForgeEnv(BaseEnv):
             step_count=self._step_count,
             starting_accuracy=self._starting_accuracy,
             previous_state=previous_state,
+            schema=self._schema,
         )
 
         if "_current_accuracy" in reward_dict:
@@ -185,6 +188,46 @@ class DataForgeEnv(BaseEnv):
             [f"[{idx}]{name}:{info['type']}" for idx, (name, info) in enumerate(self._schema.items())]
         )
 
+        # violation_type: detect the worst violation in the top row's first suspect column
+        violation_type = ""
+        if ranked_rows:
+            top_row_idx, _, top_suspects = ranked_rows[0]
+            if top_suspects:
+                suspect_col = top_suspects[0]
+                col_schema = self._schema.get(suspect_col, {})
+                try:
+                    cell_val = state_clean.at[top_row_idx, suspect_col]
+                    loc_in_state = state_clean.index.get_loc(top_row_idx)
+                    vtype = self._reward_computer._detect_constraint_violation(
+                        cell_val, suspect_col, col_schema, state_clean, loc_in_state
+                    )
+                    violation_type = vtype if vtype is not None else "clean"
+                except Exception:
+                    violation_type = ""
+
+        # column_stats: distribution context for top suspect column
+        column_stats = ""
+        if ranked_rows:
+            top_row_idx, _, top_suspects = ranked_rows[0]
+            if top_suspects:
+                suspect_col = top_suspects[0]
+                col_schema = self._schema.get(suspect_col, {})
+                try:
+                    col_numeric = pd.to_numeric(state_clean[suspect_col], errors="coerce").dropna()
+                    if len(col_numeric) >= 2:
+                        mean_val = round(float(col_numeric.mean()), 2)
+                        std_val = round(float(col_numeric.std()), 2)
+                        range_schema = col_schema.get("range")
+                        if range_schema:
+                            column_stats = (
+                                f"{suspect_col}: mean={mean_val}, std={std_val}, "
+                                f"range_schema=[{range_schema[0]},{range_schema[1]}]"
+                            )
+                        else:
+                            column_stats = f"{suspect_col}: mean={mean_val}, std={std_val}"
+                except Exception:
+                    column_stats = ""
+
         return DataForgeObservation(
             rows_json=json.dumps(rows_safe),
             schema_str=schema_str,
@@ -195,4 +238,6 @@ class DataForgeEnv(BaseEnv):
             total_errors=total_errors,
             error_rate_pct=round(100 * total_errors / max(total_cells, 1), 1),
             action_history=self._action_log[-2:],
+            violation_type=violation_type,
+            column_stats=column_stats,
         )
