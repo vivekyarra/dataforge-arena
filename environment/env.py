@@ -82,12 +82,12 @@ class DataForgeEnv(BaseEnv):
         
         return self._make_observation()
 
-    def step(self, action: SurgeonAction) -> tuple:
+    def step(self, action: SurgeonAction) -> tuple[DataForgeObservation, float, bool, dict]:
         # Validate
         if not self._is_valid(action):
             return (self._make_observation(),
-                    {"total": -0.5, "invalid_action": True},
-                    False, {})
+                    -0.5,
+                    False, {"invalid_action": True})
         
         self._step_count += 1
         self._action_log.append(action.model_dump())
@@ -122,9 +122,12 @@ class DataForgeEnv(BaseEnv):
         if done:
             self._corruptor.record_episode(sum(self._episode_rewards))
         
-        return self._make_observation(), reward_dict, done, {
+        total_reward = float(reward_dict.pop("total", 0.0))
+        
+        return self._make_observation(), total_reward, done, {
             "action_log": self._action_log,
             "step": self._step_count,
+            "reward_components": reward_dict,
         }
 
     def _is_valid(self, action: SurgeonAction) -> bool:

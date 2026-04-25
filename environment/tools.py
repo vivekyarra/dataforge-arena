@@ -70,7 +70,7 @@ def _correct_format(val, col_name: str, schema: dict):
         val_str = str(val)
         if re.match(r'^[\w.\-+]+@[\w.\-]+\.\w{2,}$', val_str):
             return val_str
-        return None  # unfixable format -> null, agent should have used FLAG
+        return val  # return original instead of None — agent should use FLAG_UNCERTAIN
     
     if "phone" in col_lower:
         digits = re.sub(r'\D', '', str(val))

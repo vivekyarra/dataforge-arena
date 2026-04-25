@@ -232,8 +232,8 @@ def simulate_agent(agent_type):
                         break
                     elif str(cell).startswith("ERR_"):
                         target_row, target_col = r, c_idx
-                        action_tool = 4 # DELETE_ROW
-                        action_reason = "Naive baseline: Type error found. Deleting row."
+                        action_tool = 0 # IMPUTE_MEDIAN
+                        action_reason = "Naive baseline: Type error found. Imputing median."
                         break
                 if target_row is not None: break
             
@@ -242,12 +242,12 @@ def simulate_agent(agent_type):
                                    row_id=target_row if target_row else 0)
             
             # Apply Action
-            obs, reward_dict, done, info = env.step(action)
+            obs, total_reward, done, info = env.step(action)
             rollouts.append({
                 "reasoning": action.reasoning,
                 "tool_name": SURGEON_TOOLS[action.tool_id]["name"],
-                "reward": reward_dict["total"],
-                "advantage": reward_dict["total"] - 0.5,
+                "reward": total_reward,
+                "advantage": total_reward - 0.5,
                 "selected": True,
                 "is_baseline": True
             })
@@ -279,13 +279,13 @@ def simulate_agent(agent_type):
                 # Fallback to a safe action if the model outputs absolute garbage
                 action = SurgeonAction(reasoning=f"LLM parse failure: {str(e)[:40]}", tool_id=7, column=0, row_id=0)
 
-            obs, reward_dict, done, info = env.step(action)
+            obs, total_reward, done, info = env.step(action)
             
             rollouts.append({
                 "reasoning": action.reasoning,
                 "tool_name": SURGEON_TOOLS[action.tool_id]["name"],
-                "reward": reward_dict["total"],
-                "advantage": reward_dict["total"] - 0.1,
+                "reward": total_reward,
+                "advantage": total_reward - 0.1,
                 "selected": True,
                 "is_baseline": False
             })

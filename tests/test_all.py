@@ -230,8 +230,8 @@ def test_env_full_episode(env):
     obs = env.reset()
     for _ in range(5):
         action = SurgeonAction(reasoning="testing", tool_id=7, column=0, row_id=0)
-        obs, reward_dict, done, _ = env.step(action)
-        assert "total" in reward_dict
+        obs, reward, done, _ = env.step(action)
+        assert isinstance(reward, float)
         if done:
             break
 

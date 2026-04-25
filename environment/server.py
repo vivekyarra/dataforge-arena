@@ -79,13 +79,8 @@ async def step(action: SurgeonAction):
     async with env_lock:
         if env._state is None:
             raise HTTPException(400, "Call /reset first")
-        obs, reward_dict, done, info = env.step(action)
-        return {
-            "observation": obs.model_dump(),
-            "reward": reward_dict,
-            "done": done,
-            "info": info,
-        }
+        obs, reward, done, info = env.step(action)
+        return {"observation": obs.model_dump(), "reward": reward, "done": done, "info": info}
 
 if __name__ == "__main__":
     uvicorn.run("environment.server:app", host="0.0.0.0", port=7860, reload=False)

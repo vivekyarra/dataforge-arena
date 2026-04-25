@@ -16,6 +16,28 @@ from environment.env import DataForgeEnv, SurgeonAction
 from environment.corruptor import Corruptor
 from environment.reward import RewardComputer
 from environment.schemas import HEALTHCARE_SCHEMA, SURGEON_TOOLS
+from training.parser import robust_parse_action
+
+llm_pipeline = None
+
+def load_eval_pipeline():
+    global llm_pipeline
+    if llm_pipeline is not None: return llm_pipeline
+    try:
+        from transformers import pipeline
+        import torch
+        print("Loading Trained LoRA Pipeline for Eval...")
+        device = 0 if torch.cuda.is_available() else -1
+        model_path = "outputs/dataforge-surgeon"
+        if not os.path.exists(model_path):
+            print("WARNING: outputs/dataforge-surgeon not found. Falling back to heuristic.")
+            return None
+        llm_pipeline = pipeline("text-generation", model=model_path, 
+                                device=device, torch_dtype=torch.bfloat16 if device==0 else torch.float32)
+        return llm_pipeline
+    except Exception as e:
+        print(f"Failed to load pipeline: {e}")
+        return None
 
 
 def random_baseline_agent(state: pd.DataFrame, gt: pd.DataFrame) -> SurgeonAction:
@@ -77,6 +99,35 @@ def heuristic_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame,
     # No errors found -- NO_OP
     return SurgeonAction(reasoning="no errors detected", tool_id=7, column=0, row_id=0)
 
+def grpo_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame, schema: dict, env=None) -> SurgeonAction:
+    """Trained agent: Uses LLM inference to select tool."""
+    global llm_pipeline
+    if llm_pipeline is None:
+        # Fallback to heuristic if model isn't loaded
+        return heuristic_surgeon_agent(state, gt, schema)
+    
+    from demo.app import build_prompt
+    
+    # We need to construct an observation
+    if env:
+        obs = env._make_observation()
+    else:
+        # Fallback dummy observation if env is not provided
+        obs = None
+        
+    prompt = build_prompt(obs)
+    messages = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": f"Observation: {obs.model_dump_json()}\\nOutput valid JSON only."}
+    ]
+    
+    try:
+        outputs = llm_pipeline(messages, max_new_tokens=256, temperature=0.1, do_sample=False, num_return_sequences=1)
+        generated_text = outputs[0]["generated_text"][-1]["content"]
+        return robust_parse_action(generated_text)
+    except Exception as e:
+        return SurgeonAction(reasoning=f"LLM parse failure: {str(e)[:40]}", tool_id=7, column=0, row_id=0)
+
 
 def _matches_type(val_str: str, schema_info: dict) -> bool:
     """Check if a string value roughly matches the expected type."""
@@ -109,6 +160,12 @@ def evaluate(n_episodes: int = 10, tier: int = 1, max_steps: int = 5):
     print(f"  Episodes: {n_episodes} | Tier: {tier} | Max Steps: {max_steps}")
     print(f"{'='*60}\n")
     
+    # Load pipeline once
+    load_eval_pipeline()
+
+    # Pre-init env for the GRPO agent to generate prompts easily
+    env = DataForgeEnv(corruptor, HEALTHCARE_SCHEMA, clean_data)
+
     for ep in range(n_episodes):
         n = min(50, len(clean_data))
         sample = clean_data.sample(n=n).reset_index(drop=True)
@@ -123,13 +180,20 @@ def evaluate(n_episodes: int = 10, tier: int = 1, max_steps: int = 5):
         
         for agent_name, agent_fn in [
             ("random", lambda s, g: random_baseline_agent(s, g)),
-            ("surgeon", lambda s, g: heuristic_surgeon_agent(s, g, HEALTHCARE_SCHEMA)),
+            ("surgeon", lambda s, g: grpo_surgeon_agent(s, g, HEALTHCARE_SCHEMA, env)),
         ]:
             state = dirty.copy()
+            # Set env state for the GRPO agent's prompt builder
+            env._state = state
+            env._ground_truth = gt
+            env._action_log = []
+            
             for _ in range(max_steps):
                 action = agent_fn(state, gt)
                 from environment.tools import apply_tool
                 state = apply_tool(state, action, HEALTHCARE_SCHEMA)
+                env._state = state
+                env._action_log.append(action.model_dump())
             
             acc_after = rc._field_accuracy(state, gt)
             delta = acc_after - acc_before

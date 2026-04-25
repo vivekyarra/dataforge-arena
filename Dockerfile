@@ -8,4 +8,4 @@ COPY . .
 RUN python training/generate_data.py
 
 EXPOSE 7860
-CMD ["uvicorn", "environment.server:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["python", "demo/app.py"]

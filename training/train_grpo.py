@@ -60,7 +60,14 @@ model = FastLanguageModel.get_peft_model(
 # -- Step 4: Build training dataset --------------------------------
 def build_dataset(n=200) -> Dataset:
     prompts = []
+    import random
     for _ in range(n):
+        if random.random() < 0.5:
+            env._schema = HEALTHCARE_SCHEMA
+            env._clean_data = clean_data_hc
+        else:
+            env._schema = FINANCIAL_SCHEMA
+            env._clean_data = clean_data_fin
         obs = env.reset()
         prompts.append({"prompt": build_prompt(obs)})
     return Dataset.from_list(prompts)
@@ -81,7 +88,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
     """
     rewards = []
     component_accum = {
-        "accuracy_delta": [], "accuracy_absolute": [], "tool_logic": [], 
+        "accuracy_delta": [], "tool_logic": [], 
         "reasoning": [], "efficiency": [], "anti_hack": []
     }
     
@@ -106,7 +113,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
             rewards.append(-2.0)
             continue
         
-        _, reward_dict, done, info = env.step(action)
+        _, reward, done, info = env.step(action)
         
         # Log action for collapse detection
         recent_actions.append(action.model_dump())
@@ -115,9 +122,9 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         
         
         for k in component_accum:
-            component_accum[k].append(reward_dict.get(k, 0))
+            component_accum[k].append(info.get("reward_components", {}).get(k, 0))
             
-        rewards.append(reward_dict["total"])
+        rewards.append(reward)
     
     # Advance corruptor epoch every training step
     corruptor.record_episode(sum(rewards) / max(len(rewards), 1))

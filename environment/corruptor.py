@@ -181,8 +181,3 @@ class Corruptor:
 
         return True, "ok"
     
-    def compute_corruptor_reward(self, metadata: dict) -> float:
-        tool = metadata.get("tool", "")
-        if tool not in CORRUPTOR_TOOLS or CORRUPTOR_TOOLS[tool].get("banned"):
-            return -10.0
-        return CORRUPTOR_TOOLS[tool]["reward"]
