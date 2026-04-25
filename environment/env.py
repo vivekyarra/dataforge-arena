@@ -159,12 +159,17 @@ class DataForgeEnv(BaseEnv):
         suspect_by_row = {row_idx: issues for row_idx, _, issues in ranked_rows}
         error_score_by_row = {row_idx: score for row_idx, score, _ in ranked_rows}
         top_rows = state_clean.loc[top_idx] if top_idx else state_clean.iloc[0:0]
+        col_name_to_idx = {name: idx for idx, name in enumerate(self._schema.keys())}
 
         rows_safe = []
         for orig_idx, row in top_rows.iterrows():
             record = {"_row_idx": int(orig_idx)}
             record["_error_score"] = int(error_score_by_row.get(orig_idx, 0))
-            record["_suspect_columns"] = suspect_by_row.get(orig_idx, [])
+            raw_suspects = suspect_by_row.get(orig_idx, [])
+            record["_suspect_columns"] = [
+                f"{col}[{col_name_to_idx.get(col, '?')}]"
+                for col in raw_suspects
+            ]
             for col_name in top_rows.columns:
                 value = row[col_name]
                 if pd.isna(value):
@@ -176,7 +181,9 @@ class DataForgeEnv(BaseEnv):
             rows_safe.append(record)
 
         total_cells = state_clean.size
-        schema_str = ", ".join([f"{name}:{info['type']}" for name, info in self._schema.items()])
+        schema_str = ", ".join(
+            [f"[{idx}]{name}:{info['type']}" for idx, (name, info) in enumerate(self._schema.items())]
+        )
 
         return DataForgeObservation(
             rows_json=json.dumps(rows_safe),

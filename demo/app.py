@@ -1398,7 +1398,7 @@ def build_demo():
     choices = available_agent_choices()
     default_choice = "Live GRPO Model" if "Live GRPO Model" in choices else "Heuristic Surgeon"
 
-    with gr.Blocks(title="DataForge Arena", css=DARK_CSS, theme=gr.themes.Base()) as demo:
+    with gr.Blocks(title="DataForge Arena") as demo:
         session_state = gr.State(_new_session_state())
 
         gr.HTML(_hero_html())
@@ -1527,12 +1527,6 @@ demo = build_demo()
 if __name__ == "__main__":
     server_name = os.getenv("GRADIO_SERVER_NAME", "0.0.0.0")
     server_port = int(os.getenv("PORT", os.getenv("GRADIO_SERVER_PORT", "7860")))
-    # Pass css/theme to launch() as well for Gradio 6.x compat (4.x reads from Blocks).
-    warnings.filterwarnings(
-        "ignore",
-        message=r".*parameters have been moved.*",
-        category=UserWarning,
-    )
     demo.queue(default_concurrency_limit=8).launch(
         server_name=server_name,
         server_port=server_port,

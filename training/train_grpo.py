@@ -176,9 +176,18 @@ def _extract_suspect_column_indices(rows_json: str, schema: dict) -> dict[int, l
         if row_id is None:
             continue
         suspect_cols = row.get("_suspect_columns", [])
-        suspect_map[int(row_id)] = [
-            column_to_idx[name] for name in suspect_cols if name in column_to_idx
-        ]
+        parsed_indices = []
+        for suspect in suspect_cols:
+            suspect_text = str(suspect)
+            match = _re.search(r"\[(\d+)\]\s*$", suspect_text)
+            if match:
+                parsed_indices.append(int(match.group(1)))
+                continue
+
+            suspect_name = suspect_text.split("[", 1)[0]
+            if suspect_name in column_to_idx:
+                parsed_indices.append(column_to_idx[suspect_name])
+        suspect_map[int(row_id)] = parsed_indices
 
     return suspect_map
 
@@ -193,7 +202,7 @@ def _dominant_tool_snapshot(history: list[dict], window: int = 24) -> tuple[int,
     return dominant_tool, dominant_count / max(len(recent), 1)
 
 
-def _contextual_reward_shaping(action, episode: dict, parse_mode: str) -> float:
+def _contextual_reward_shaping(action, episode: dict, parse_mode: str, training_step: int) -> float:
     shaping = 0.0
 
     # Parse quality — strongly reward exact JSON, gently penalize recovered
@@ -231,10 +240,12 @@ def _contextual_reward_shaping(action, episode: dict, parse_mode: str) -> float:
     elif len(reasoning.split()) > 10:
         shaping -= 0.10
 
-    # Anti-collapse: brutally penalize tool monoculture to force exploration
+    # Anti-collapse: wait until the policy has had time to stabilize, then
+    # gently discourage obvious tool monoculture instead of crushing early learning.
     dominant_tool, dominant_rate = _dominant_tool_snapshot(recent_actions)
-    if dominant_rate >= 0.40 and action.tool_id == dominant_tool:
-        shaping -= min(2.50, 0.50 + (dominant_rate - 0.40) * 5.0)
+    if training_step >= 40 and len(recent_actions) >= 32:
+        if dominant_rate >= 0.75 and action.tool_id == dominant_tool:
+            shaping -= min(0.80, 0.12 + (dominant_rate - 0.75) * 2.7)
 
     return shaping
 
@@ -334,7 +345,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
                 continue
 
         _, reward, _, info = env.step(action)
-        policy_shaping = _contextual_reward_shaping(action, episode, parse_mode)
+        policy_shaping = _contextual_reward_shaping(action, episode, parse_mode, current_step[0])
         if info.get("invalid_action"):
             invalid_actions[0] += 1
             policy_shaping -= 0.25
@@ -410,6 +421,7 @@ trainer = GRPOTrainer(
         temperature=model_cfg.get("temperature", 0.5),
         beta=0.01,
         learning_rate=2e-5,
+        warmup_ratio=0.08,
         per_device_train_batch_size=model_cfg["batch_size"],
         gradient_accumulation_steps=model_cfg["grad_accum"],
         num_train_epochs=3,

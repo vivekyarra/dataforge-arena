@@ -9,7 +9,7 @@ Theme: World Modeling - Multi-App RL Environment for Enterprise Workflows
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compliant-10b981?style=for-the-badge)](https://github.com/huggingface/openenv)
 [![TRL](https://img.shields.io/badge/TRL-GRPO-f59e0b?style=for-the-badge)](https://huggingface.co/docs/trl/main/en/grpo)
-[![Tests](https://img.shields.io/badge/Tests-129_passed-10b981?style=for-the-badge)](./tests)
+[![Tests](https://img.shields.io/badge/Tests-130_passed-10b981?style=for-the-badge)](./tests)
 [![Evidence](https://img.shields.io/badge/Evidence-committed_artifacts-blue?style=for-the-badge)](./eval/results.json)
 
 ---
@@ -39,7 +39,7 @@ This public repo is intentionally honest about evidence. It ships a working envi
 | Trained GRPO checkpoint is less destructive than random | `+0.41 pp` advantage in accuracy delta | [`eval/results.json`](./eval/results.json) |
 | T4 GRPO proof run completed | Tesla T4, target `80` steps, last logged step `75` | [`logs/training_log.csv`](./logs/training_log.csv), [`logs/training_curve.png`](./logs/training_curve.png) |
 | Parser improved during the short run | parse success `25% -> 50%`, mean `40.00%` | [`logs/training_log.csv`](./logs/training_log.csv) |
-| Regression suite is green | `129 passed` (`60` core + `69` stress) | `python -m pytest -q` |
+| Regression suite is green | `130 passed` (`61` core + `69` stress) | `python -m pytest -q` |
 
 Important: the trained checkpoint directory itself is not committed because `outputs/` is intentionally ignored. The committed GRPO evidence comes from the Colab-produced checkpoint at `outputs/dataforge-surgeon`; the demo exposes `Live GRPO Model` only when that checkpoint exists locally.
 
@@ -143,9 +143,9 @@ python demo/app.py
 
 For a zero-setup artifact, open [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html) directly in a browser.
 
-For Colab GPU training, use [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb). Its setup cell pins the stack that already completed a real Tesla T4 run for this project: `torch==2.10.0+cu128`, `trl==0.24.0`, `unsloth==2026.4.8`, `peft>=0.14.0`, plus the minimal training dependencies, then imports `GRPOTrainer` as a preflight check before training begins.
+For Colab GPU training, use [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb). It now uses a safer install flow, verifies the indexed observation prompt format before training, avoids force-killing the runtime, and includes an optional Hugging Face upload cell for checkpoint publishing.
 
-The current T4 defaults now bias toward denser learning and lower cost: `4` generations per prompt, `64`-token completions, `1024` sequence length, a smaller episode pool, and stronger shaping for exact parses plus suspect-row targeting.
+The current T4 defaults now bias toward denser learning and lower cost: `200` max steps, `4` generations per prompt, `80`-token completions, `1280` sequence length, a smaller episode pool, GRPO warmup, and gentler late-stage anti-collapse shaping.
 
 After training and saving a checkpoint to `outputs/dataforge-surgeon`:
 

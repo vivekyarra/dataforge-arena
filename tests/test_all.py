@@ -622,4 +622,16 @@ def test_observation_exposes_suspect_columns(env, clean_df):
     rows = json.loads(obs.rows_json)
     target = next(row for row in rows if row["_row_idx"] == 0)
     assert target["_error_score"] >= 1
-    assert "email" in target["_suspect_columns"]
+    email_idx = list(HEALTHCARE_SCHEMA.keys()).index("email")
+    assert f"email[{email_idx}]" in target["_suspect_columns"]
+
+
+def test_observation_schema_exposes_column_indices(env, clean_df):
+    env._state = clean_df.copy()
+    env._ground_truth = clean_df.copy()
+    env._action_log = []
+    env._step_count = 0
+    obs = env._make_observation()
+    assert "[0]patient_id:int" in obs.schema_str
+    email_idx = list(HEALTHCARE_SCHEMA.keys()).index("email")
+    assert f"[{email_idx}]email:email" in obs.schema_str
