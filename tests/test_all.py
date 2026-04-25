@@ -9,7 +9,8 @@ import pytest
 from environment.corruptor import Corruptor
 from environment.env import DataForgeEnv, SurgeonAction
 from environment.reward import RewardComputer
-from environment.schemas import HEALTHCARE_SCHEMA
+from environment.schemas import DEPT_MAP, HEALTHCARE_SCHEMA
+from environment.validation import summarize_corruption
 from training.parser import robust_parse_action
 
 
@@ -25,7 +26,7 @@ def clean_df():
             "phone": ["1234567890"] * 5,
             "diagnosis": ["Flu", "Diabetes", "Fracture", "Hypertension", "Asthma"],
             "department_id": [1, 2, 3, 4, 5],
-            "department_name": ["Cardiology", "Neurology", "Oncology", "Pediatrics", "Ortho"],
+            "department_name": ["Cardiology", "Neurology", "Oncology", "Pediatrics", "Orthopedics"],
             "admission_date": ["2024-01-01"] * 5,
         }
     )
@@ -45,6 +46,17 @@ def test_corruptor_generates_episode(corruptor, clean_df):
     dirty, gt, meta = corruptor.generate_episode(clean_df)
     assert len(dirty) >= len(clean_df)
     assert "tool" in meta
+
+
+def test_clean_fixture_is_actually_clean(clean_df):
+    _, total_errors = summarize_corruption(clean_df, HEALTHCARE_SCHEMA)
+    assert total_errors == 0
+
+
+def test_department_id_schema_range_matches_department_map():
+    lo, hi = HEALTHCARE_SCHEMA["department_id"]["range"]
+    assert lo == min(DEPT_MAP)
+    assert hi == max(DEPT_MAP)
 
 
 def test_solvability_gate_rejects_banned_tools(corruptor, clean_df):

@@ -63,7 +63,7 @@ This repo is evidence-first. The current committed artifacts show:
 | Logged GRPO curriculum tiers | `1, 2, 3` |
 | Mean logged parse success | `40.00%` |
 | Parse success first to final | `25% -> 50%` |
-| Test suite | `58 passed` via `python -m pytest -q` |
+| Test suite | `60 passed` via `python -m pytest -q` |
 
 One important note: the public repo does not commit the local checkpoint directory because `outputs/` is ignored. The committed GRPO numbers come from the Colab-trained checkpoint at `outputs/dataforge-surgeon`. The demo and evaluation harness expose live GRPO mode only when that checkpoint exists locally.
 

@@ -8,7 +8,7 @@ HEALTHCARE_SCHEMA = {
     "email":          {"type": "email",  "nullable": True},
     "phone":          {"type": "phone",  "nullable": True},
     "diagnosis":      {"type": "str",    "nullable": False},
-    "department_id":  {"type": "int",    "nullable": False, "range": (1, 20)},
+    "department_id":  {"type": "int",    "nullable": False, "range": (1, 10)},
     "department_name":{"type": "str",    "nullable": False},
     "admission_date": {"type": "date",   "nullable": False},
 }
