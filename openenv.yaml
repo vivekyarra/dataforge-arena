@@ -4,8 +4,11 @@
 name: dataforge-arena
 version: "1.0.0"
 description: >
-  An OpenEnv benchmark for training and auditing data-repair agents
-  under adversarial tabular corruption across healthcare and financial schemas.
+  DataForge Arena: an OpenEnv benchmark training autonomous data cleaning agents
+  to maintain causal world models of structured enterprise data. The agent reasons
+  about schema types, value ranges, FK constraints, and statistical distributions
+  to select and justify repairs. Reward is grounded in ground-truth accuracy delta —
+  no LLM judge, no human annotation.
 
 # Environment interface
 env:
@@ -36,9 +39,11 @@ deployment:
 task:
   name: tabular-data-repair
   description: >
-    Observe a corrupted tabular dataset, select an appropriate repair tool
-    (impute, correct, delete, flag, no-op), target the right cell, and
-    improve data quality as measured by accuracy delta against ground truth.
+    Observe a corrupted tabular dataset, identify the causal violation type
+    (range, null, FK, enum, temporal, statistical outlier), select the appropriate
+    repair tool, target the correct cell, and improve data quality as measured by
+    accuracy delta against ground truth. The agent must maintain a causal world model
+    of schema constraints to earn alignment rewards.
   max_steps: 5
   difficulty_tiers: [1, 2, 3]
 
@@ -46,11 +51,13 @@ task:
 reward:
   primary_signal: accuracy_delta
   shaping_terms:
-    - tool_logic
-    - reasoning
-    - efficiency
-    - anti_hack
-  range: [-3.0, 3.0]
+    - constraint_alignment      # Did agent correctly identify the violation type?
+    - schema_alignment          # Did agent select the right tool for the column type?
+    - outlier_targeting         # Did agent target a genuine statistical outlier (z > 3σ)?
+    - reasoning_quality         # Does reasoning reference column name + violation type?
+    - parse_bonus               # Clean, parseable JSON output
+    - anti_hack                 # Prevents mass-deletion reward hacking
+  range: [-5.0, 5.0]
 
 # Schemas
 schemas:
@@ -60,6 +67,19 @@ schemas:
   - name: financial
     file: environment/schemas.py
     columns: 7
+
+# Corruption taxonomy
+corruption:
+  tier_1:
+    - null_injection
+    - type_mismatch
+    - range_violation
+    - enum_violation
+  tier_2:
+    - fk_mismatch
+    - semantic_temporal_drift
+    - currency_amount_inconsistency
+  escalation: reward_gate_and_epoch_gate
 
 # Training
 training:
@@ -80,12 +100,14 @@ evaluation:
     - random_avg_accuracy_delta
     - surgeon_advantage_accuracy_delta
     - surgeon_win_rate
+    - constraint_alignment_rate
+    - schema_alignment_rate
 
 # Metadata
 metadata:
   authors: [Vivek567]
   license: MIT
   hackathon: "Meta x PyTorch x Hugging Face x Scaler OpenEnv Hackathon 2026"
-  theme: "World Modeling - Multi-App RL Environment for Enterprise Workflows"
+  theme: "3.1 World Modeling / Professional Tasks — Causal Schema Reasoning Agent"
   repository: https://github.com/vivekyarra/dataforge-arena
   space: https://huggingface.co/spaces/Vivek567/dataforge-arena
