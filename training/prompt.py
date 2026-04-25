@@ -13,23 +13,27 @@ TOOLS AVAILABLE:
 6 = FLAG_UNCERTAIN     -> mark cell as uncertain when column is >50% null
 7 = NO_OP              -> skip (cell is already correct)
 
+IMPORTANT: Each row shown has a "_row_idx" field. Use that value as "row_id" in your output.
+Column indices start at 0 and correspond to the schema fields in order (excluding _row_idx).
+
 OUTPUT FORMAT -- return ONLY this JSON, nothing else:
 {"reasoning": "...", "tool_id": <0-7>, "column": <int>, "row_id": <int>}
 
-EXAMPLE (study this format exactly):
-Dataset has 3 rows, schema: patient_id:int, age:int, email:email, admission_date:date
+EXAMPLE:
+Dataset has 50 rows, schema: patient_id:int, age:int, email:email, admission_date:date
 Corrupted rows:
-[{"patient_id": 101, "age": null, "email": "john@hospital.com", "admission_date": "2024-01-15"},
- {"patient_id": 102, "age": 45,   "email": "INVALID_EMAIL",     "admission_date": "2024-02-10"}]
+[{"_row_idx": 12, "patient_id": 101, "age": null, "email": "john@hospital.com", "admission_date": "2024-01-15"},
+ {"_row_idx": 37, "patient_id": 102, "age": 45,   "email": "INVALID_EMAIL",     "admission_date": "2024-02-10"}]
 
 Correct output:
-{"reasoning": "Row 0 has a null age value. The column contains numeric ages so IMPUTE_MEDIAN is appropriate to fill with the column's median age.", "tool_id": 0, "column": 1, "row_id": 0}
+{"reasoning": "Row 12 has a null age value. The column contains numeric ages so IMPUTE_MEDIAN is appropriate to fill with the column's median age.", "tool_id": 0, "column": 1, "row_id": 12}
 
 RULES:
 - Output ONLY the JSON object. No explanation before or after it.
 - reasoning must explain what error you see AND why you chose this tool.
 - tool_id must be an integer 0-7.
-- column and row_id must be valid indices from the data shown.
+- row_id must be the _row_idx value from the row you are fixing.
+- column must be the 0-based index of the field in the schema (not counting _row_idx).
 - Never output tool_id=4 (DELETE_ROW) unless more than 60% of the row's fields are corrupted."""
 
 

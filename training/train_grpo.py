@@ -88,7 +88,7 @@ def build_dataset(n=200) -> Dataset:
     return Dataset.from_list(prompts)
 
 print("Building training dataset...")
-train_dataset = build_dataset(200)
+train_dataset = build_dataset(400)
 
 # -- Step 5: Reward function ----------------------------------------
 current_step = [0]  # mutable for closure
@@ -192,7 +192,7 @@ trainer = GRPOTrainer(
         # the complexity. A fixed beta of 0.01 works well for 80-step runs
         # on T4. For longer runs on A100 (150+ steps), consider 0.005.
         beta=0.01,
-        learning_rate=5e-6,
+        learning_rate=1e-5,
         per_device_train_batch_size=model_cfg["batch_size"],
         gradient_accumulation_steps=model_cfg["grad_accum"],
         num_train_epochs=3,

@@ -180,8 +180,15 @@ class DataForgeEnv(BaseEnv):
         top_idx = [i for i, _ in scored[:5]]
         top_rows = state_clean.iloc[top_idx]
         
-        # Safe serialization: NaN -> None
-        rows_safe = top_rows.where(pd.notna(top_rows), None).to_dict("records")
+        # CRITICAL: Include row indices so the model knows which row_id to target.
+        # Without this, the model sees rows but can't map them to valid row_id values.
+        rows_safe = []
+        for orig_idx, (_, row) in zip(top_idx, top_rows.iterrows()):
+            record = {"_row_idx": int(orig_idx)}
+            for col in top_rows.columns:
+                val = row[col]
+                record[col] = None if pd.isna(val) else val
+            rows_safe.append(record)
         
         total_cells = state_clean.size
         
