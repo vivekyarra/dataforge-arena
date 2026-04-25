@@ -15,9 +15,10 @@ import torch
 from datasets import Dataset
 
 # --- HOTFIX FOR TRL/LLM_BLENDER DEPENDENCY HELL ---
+import os
 import transformers.utils.hub
 if not hasattr(transformers.utils.hub, "TRANSFORMERS_CACHE"):
-    transformers.utils.hub.TRANSFORMERS_CACHE = transformers.utils.hub.HF_HUB_CACHE
+    transformers.utils.hub.TRANSFORMERS_CACHE = os.getenv("HF_HOME", "/tmp/hf_cache")
 # --------------------------------------------------
 
 from trl import GRPOConfig, GRPOTrainer
