@@ -24,7 +24,7 @@ DataForge Arena turns that reality into a compact RL environment:
 - **Adversarial curriculum:** corruption escalates across tiers as the agent improves.
 - **Grounded reward:** the main signal is `accuracy_delta`, not style, fluency, or self-reported confidence.
 - **GRPO-ready training stack:** TRL GRPO trains a surgeon policy over structured JSON repair actions.
-- **Evidence-first demo:** the UI shows execution provenance, action traces, reward, and before/after dataset health.
+- **Evidence-first demo:** the UI shows execution provenance, action traces, reward, a cell-level change audit, and a benchmark snapshot.
 
 ## What This Repo Proves Today
 
@@ -116,7 +116,7 @@ The Gradio demo in [`demo/app.py`](./demo/app.py) has three execution paths:
 - `Heuristic Surgeon`: always available, matches the committed evidence artifact.
 - `Live GRPO Model`: appears only when `outputs/dataforge-surgeon` exists locally.
 
-That checkpoint gate is deliberate. The interface never pretends a live trained model is running when it is not.
+That checkpoint gate is deliberate. The interface never pretends a live trained model is running when it is not. The judge-facing UI also includes a refreshable evidence panel, a benchmark race view, and a before/after cell diff audit so each rollout can be inspected without narration.
 
 ## Quick Start
 
@@ -139,6 +139,8 @@ python demo/app.py
 ```
 
 For Colab GPU training, use [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb). Its setup cell pins the stack that already completed a real Tesla T4 run for this project: `torch==2.10.0+cu128`, `trl==0.24.0`, `unsloth==2026.4.8`, `peft>=0.14.0`, plus the minimal training dependencies, then imports `GRPOTrainer` as a preflight check before training begins.
+
+The current T4 defaults are tuned to reduce cold-start collapse during GRPO: warmer sampling, `6` generations per prompt, longer completions, and extra training-time diagnostics for partial parses, invalid actions, and dominant-tool drift.
 
 After training and saving a checkpoint to `outputs/dataforge-surgeon`:
 

@@ -19,6 +19,7 @@ build/
 # Training artifacts (keep logs/ tracked!)
 *.csv.bak
 wandb/
+logs/demo_server.*.log
 
 # System
 .DS_Store

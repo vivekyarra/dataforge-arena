@@ -2,6 +2,7 @@
 DataForge Arena -- GRPO Training Script
 Run on campus with HF compute credits.
 """
+import json
 import os
 from pathlib import Path
 import random as _random
@@ -10,6 +11,7 @@ import sys
 import time as _time
 import uuid as _uuid
 import warnings
+from collections import Counter
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 os.chdir(REPO_ROOT)
@@ -158,6 +160,67 @@ def _format_progress_reward(completion) -> float:
     return max(-2.0, min(score, -0.25))
 
 
+def _extract_suspect_column_indices(rows_json: str, schema: dict) -> dict[int, list[int]]:
+    column_to_idx = {name: idx for idx, name in enumerate(schema.keys())}
+    suspect_map = {}
+
+    try:
+        rows = json.loads(rows_json)
+    except (TypeError, json.JSONDecodeError):
+        return suspect_map
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_id = row.get("_row_idx")
+        if row_id is None:
+            continue
+        suspect_cols = row.get("_suspect_columns", [])
+        suspect_map[int(row_id)] = [
+            column_to_idx[name] for name in suspect_cols if name in column_to_idx
+        ]
+
+    return suspect_map
+
+
+def _dominant_tool_snapshot(history: list[dict], window: int = 24) -> tuple[int, float]:
+    if not history:
+        return -1, 0.0
+
+    recent = history[-window:]
+    tool_counts = Counter(item.get("tool_id", -1) for item in recent)
+    dominant_tool, dominant_count = tool_counts.most_common(1)[0]
+    return dominant_tool, dominant_count / max(len(recent), 1)
+
+
+def _contextual_reward_shaping(action, episode: dict, parse_mode: str) -> float:
+    shaping = 0.0
+
+    if parse_mode == "exact":
+        shaping += 0.15
+    elif parse_mode == "recovered":
+        shaping -= 0.30
+
+    total_errors = int(episode.get("total_errors", 0))
+    if total_errors > 0 and action.tool_id == 7:
+        shaping -= 0.60
+    elif total_errors > 0 and action.tool_id != 7:
+        shaping += 0.05
+
+    row_suspects = episode.get("suspect_column_indices", {}).get(int(action.row_id), [])
+    if row_suspects and action.tool_id != 7:
+        if int(action.column) in row_suspects:
+            shaping += 0.12
+        else:
+            shaping -= 0.05
+
+    dominant_tool, dominant_rate = _dominant_tool_snapshot(recent_actions)
+    if dominant_rate >= 0.70 and action.tool_id == dominant_tool:
+        shaping -= min(0.35, 0.10 + (dominant_rate - 0.70) * 0.8)
+
+    return shaping
+
+
 def build_dataset(n=200) -> Dataset:
     prompts = []
     episode_cache.clear()
@@ -180,6 +243,8 @@ def build_dataset(n=200) -> Dataset:
             "starting_accuracy": env._starting_accuracy,
             "schema": env._schema,
             "difficulty": obs.difficulty,
+            "total_errors": obs.total_errors,
+            "suspect_column_indices": _extract_suspect_column_indices(obs.rows_json, env._schema),
         }
         prompts.append({"prompt": _attach_episode_key(build_prompt(obs), episode_key)})
     return Dataset.from_list(prompts)
@@ -190,7 +255,10 @@ train_dataset = build_dataset(model_cfg.get("dataset_size", 400))
 
 current_step = [0]
 parse_successes = [0]
+parse_recoveries = [0]
+invalid_actions = [0]
 total_rollouts = [0]
+structural_penalty_total = [0.0]
 
 
 def reward_fn(completions: list, prompts: list, **kwargs) -> list:
@@ -205,6 +273,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         "reasoning": [],
         "efficiency": [],
         "anti_hack": [],
+        "policy_shaping": [],
     }
     batch_difficulties = []
 
@@ -231,25 +300,38 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         batch_difficulties.append(episode["difficulty"])
 
         structural_penalty = 0.0
+        parse_mode = "exact"
         try:
             action = robust_parse_action(completion, require_fields=True)
             parse_successes[0] += 1
         except ValueError:
+            parse_mode = "recovered"
             structural_penalty = _format_progress_reward(completion)
             try:
                 action = robust_parse_action(completion, require_fields=False)
+                parse_recoveries[0] += 1
             except ValueError:
+                structural_penalty_total[0] += structural_penalty
                 rewards.append(structural_penalty)
                 continue
 
         _, reward, _, info = env.step(action)
-        reward += structural_penalty
+        policy_shaping = _contextual_reward_shaping(action, episode, parse_mode)
+        if info.get("invalid_action"):
+            invalid_actions[0] += 1
+            policy_shaping -= 0.25
+
+        reward += structural_penalty + policy_shaping
+        structural_penalty_total[0] += structural_penalty
         recent_actions.append(action.model_dump())
         if len(recent_actions) > 100:
             recent_actions.pop(0)
 
         for key in component_accum:
-            component_accum[key].append(info.get("reward_components", {}).get(key, 0.0))
+            if key == "policy_shaping":
+                component_accum[key].append(policy_shaping)
+            else:
+                component_accum[key].append(info.get("reward_components", {}).get(key, 0.0))
 
         rewards.append(reward)
 
@@ -257,6 +339,10 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         avg_components = {key: sum(values) / max(len(values), 1) for key, values in component_accum.items()}
         avg_reward = sum(rewards) / max(len(rewards), 1)
         logged_difficulty = max(batch_difficulties, default=corruptor.difficulty)
+        dominant_tool, dominant_tool_rate = _dominant_tool_snapshot(recent_actions)
+        parse_rate = parse_successes[0] / max(total_rollouts[0], 1) * 100
+        recovered_rate = parse_recoveries[0] / max(total_rollouts[0], 1) * 100
+        invalid_rate = invalid_actions[0] / max(total_rollouts[0], 1) * 100
         logger.log(
             step=current_step[0],
             reward_dict={"total": avg_reward, **avg_components},
@@ -264,14 +350,23 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
             model_label=model_cfg["label"],
             parse_successes=parse_successes[0],
             total_rollouts=total_rollouts[0],
+            parse_recoveries=parse_recoveries[0],
+            invalid_actions=invalid_actions[0],
+            avg_structural_penalty=structural_penalty_total[0] / max(total_rollouts[0], 1),
+            dominant_tool=dominant_tool,
+            dominant_tool_rate=dominant_tool_rate,
         )
-        parse_rate = parse_successes[0] / max(total_rollouts[0], 1) * 100
         print(
             f"Step {current_step[0]:3d} | reward={avg_reward:+.3f} | "
-            f"difficulty={logged_difficulty} | parse={parse_rate:.0f}%"
+            f"difficulty={logged_difficulty} | exact={parse_rate:.0f}% | "
+            f"recovered={recovered_rate:.0f}% | invalid={invalid_rate:.0f}% | "
+            f"tool={dominant_tool}@{dominant_tool_rate:.0%}"
         )
         parse_successes[0] = 0
+        parse_recoveries[0] = 0
+        invalid_actions[0] = 0
         total_rollouts[0] = 0
+        structural_penalty_total[0] = 0.0
         logger.detect_collapse(recent_actions)
 
     current_step[0] += 1

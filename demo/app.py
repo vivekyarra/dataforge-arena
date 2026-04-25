@@ -185,6 +185,10 @@ def _training_summary() -> dict:
         "parse_success": None,
         "parse_first": None,
         "parse_last": None,
+        "parse_recovered_rate": None,
+        "invalid_action_rate": None,
+        "dominant_tool": None,
+        "dominant_tool_rate": None,
         "tiers": "Pending",
         "last_step": "Pending",
         "latest_reward": None,
@@ -199,6 +203,26 @@ def _training_summary() -> dict:
             summary["parse_success"] = float(values.mean() * 100)
             summary["parse_first"] = float(values.iloc[0] * 100)
             summary["parse_last"] = float(values.iloc[-1] * 100)
+
+    if "parse_recovered_rate" in df:
+        values = pd.to_numeric(df["parse_recovered_rate"], errors="coerce").dropna()
+        if len(values) > 0:
+            summary["parse_recovered_rate"] = float(values.iloc[-1] * 100)
+
+    if "invalid_action_rate" in df:
+        values = pd.to_numeric(df["invalid_action_rate"], errors="coerce").dropna()
+        if len(values) > 0:
+            summary["invalid_action_rate"] = float(values.iloc[-1] * 100)
+
+    if "dominant_tool" in df:
+        values = pd.to_numeric(df["dominant_tool"], errors="coerce").dropna()
+        if len(values) > 0:
+            summary["dominant_tool"] = int(values.iloc[-1])
+
+    if "dominant_tool_rate" in df:
+        values = pd.to_numeric(df["dominant_tool_rate"], errors="coerce").dropna()
+        if len(values) > 0:
+            summary["dominant_tool_rate"] = float(values.iloc[-1] * 100)
 
     if "difficulty" in df:
         tiers = sorted(pd.to_numeric(df["difficulty"], errors="coerce").dropna().astype(int).unique())
@@ -262,6 +286,17 @@ def _evidence_snapshot_html() -> str:
     heuristic_advantage = baseline.get("surgeon_advantage_accuracy_delta")
     heuristic_episodes = baseline.get("episodes", "Pending")
     parse_success = training["parse_success"]
+    recovery_detail = ""
+    if training["parse_recovered_rate"] is not None:
+        recovery_detail = f" | recovered {training['parse_recovered_rate']:.1f}%"
+    tool_detail = ""
+    if (
+        training["dominant_tool"] is not None
+        and training["dominant_tool"] >= 0
+        and training["dominant_tool_rate"] is not None
+    ):
+        tool_name = SURGEON_TOOLS.get(training["dominant_tool"], {"name": "UNKNOWN"})["name"]
+        tool_detail = f" | dominant {tool_name} @{training['dominant_tool_rate']:.0f}%"
 
     cards = [
         _metric_card(
@@ -281,7 +316,7 @@ def _evidence_snapshot_html() -> str:
             f"{parse_success:.2f}%" if parse_success is not None else "Pending",
             (
                 f"First {training['parse_first']:.1f}% -> last {training['parse_last']:.1f}% | "
-                f"tiers {training['tiers']}"
+                f"tiers {training['tiers']}{recovery_detail}{tool_detail}"
                 if training["parse_first"] is not None and training["parse_last"] is not None
                 else f"Logged GRPO curriculum through tiers {training['tiers']}"
             ),
@@ -346,6 +381,225 @@ def _unavailable_html(message: str) -> str:
         f"<div class='metric-detail'>{_escape(message)}</div>"
         "</div>"
     )
+
+
+def _format_cell_value(value) -> str:
+    if pd.isna(value):
+        return "<span class='null-token'>NULL</span>"
+    return _escape(value)
+
+
+def _tool_name(tool_id: int | None) -> str:
+    return SURGEON_TOOLS.get(tool_id, {"name": "UNKNOWN"})["name"]
+
+
+def _progress_html(completed_steps: int, total_steps: int, pending_step: int | None = None) -> str:
+    total_steps = max(total_steps, 1)
+    visual_progress = completed_steps + (0.35 if pending_step is not None else 0.0)
+    width = min(100.0, max(0.0, visual_progress / total_steps * 100))
+    active_step = pending_step if pending_step is not None else max(completed_steps, 1)
+    phase = "Selecting next repair" if pending_step is not None else "Trajectory updated"
+    return f"""
+    <div class='progress-shell'>
+      <div class='progress-copy'>
+        <div>
+          <div class='metric-label'>Rollout progress</div>
+          <div class='progress-value'>Step {active_step}/{total_steps}</div>
+        </div>
+        <div class='progress-detail'>{_escape(phase)}</div>
+      </div>
+      <div class='progress-track'><span style='width:{width:.1f}%'></span></div>
+    </div>
+    """
+
+
+def _diff_summary_html(original_state: pd.DataFrame | None, current_state: pd.DataFrame | None, gt: pd.DataFrame | None) -> str:
+    if original_state is None or current_state is None or gt is None:
+        return (
+            "<div class='diff-shell'>"
+            "<div class='metric-label'>Change audit</div>"
+            "<div class='metric-detail'>Run a scenario to inspect fixed cells, regressions, and remaining issues.</div>"
+            "</div>"
+        )
+
+    display_cols = [c for c in current_state.columns if c != "_is_deleted"]
+    row_limit = min(len(current_state), len(gt))
+    changed_rows = []
+    remaining_rows = []
+    fixed_count = 0
+    regressed_count = 0
+    remaining_count = 0
+
+    for row_idx in range(row_limit):
+        for col_name in display_cols:
+            before = original_state.at[row_idx, col_name]
+            after = current_state.at[row_idx, col_name]
+            target = gt.at[row_idx, col_name]
+            before_ok = rc._values_match(before, target)
+            after_ok = rc._values_match(after, target)
+
+            if not after_ok:
+                remaining_count += 1
+                if len(remaining_rows) < 6:
+                    remaining_rows.append(
+                        (
+                            row_idx,
+                            col_name,
+                            _format_cell_value(after),
+                            _format_cell_value(target),
+                        )
+                    )
+
+            if not rc._values_match(before, after):
+                if (not before_ok) and after_ok:
+                    badge = "Fixed"
+                    badge_cls = "pill-fixed"
+                    fixed_count += 1
+                elif before_ok and not after_ok:
+                    badge = "Regressed"
+                    badge_cls = "pill-regressed"
+                    regressed_count += 1
+                else:
+                    badge = "Shifted"
+                    badge_cls = "pill-shifted"
+
+                if len(changed_rows) < 6:
+                    changed_rows.append(
+                        (
+                            badge,
+                            badge_cls,
+                            row_idx,
+                            col_name,
+                            _format_cell_value(before),
+                            _format_cell_value(after),
+                            _format_cell_value(target),
+                        )
+                    )
+
+    def _rows_html(rows, changed: bool) -> str:
+        if not rows:
+            label = "No agent edits yet." if changed else "No unresolved cells in view."
+            return f"<tr><td colspan='6' class='empty-cell'>{label}</td></tr>"
+
+        rendered = []
+        for row in rows:
+            if changed:
+                badge, badge_cls, row_idx, col_name, before, after, target = row
+                rendered.append(
+                    "<tr>"
+                    f"<td><span class='pill {badge_cls}'>{badge}</span></td>"
+                    f"<td>r{row_idx}</td>"
+                    f"<td>{_escape(col_name)}</td>"
+                    f"<td>{before}</td>"
+                    f"<td>{after}</td>"
+                    f"<td>{target}</td>"
+                    "</tr>"
+                )
+            else:
+                row_idx, col_name, after, target = row
+                rendered.append(
+                    "<tr>"
+                    f"<td>r{row_idx}</td>"
+                    f"<td>{_escape(col_name)}</td>"
+                    f"<td>{after}</td>"
+                    f"<td>{target}</td>"
+                    "</tr>"
+                )
+        return "".join(rendered)
+
+    return f"""
+    <div class='diff-shell'>
+      <div class='diff-stats'>
+        {_metric_card("Cells fixed", str(fixed_count), "Agent edits that now match ground truth", "good" if fixed_count else "neutral")}
+        {_metric_card("Regressions", str(regressed_count), "Edits that moved away from ground truth", "bad" if regressed_count else "good")}
+        {_metric_card("Remaining issues", str(remaining_count), "Cells still not aligned with ground truth", "warn" if remaining_count else "good")}
+      </div>
+      <div class='diff-grid'>
+        <div class='diff-panel'>
+          <p class='section-label' style='margin:0 0 8px'>Changed cells</p>
+          <table class='diff-table'>
+            <thead><tr><th>Status</th><th>Row</th><th>Column</th><th>Before</th><th>After</th><th>Target</th></tr></thead>
+            <tbody>{_rows_html(changed_rows, changed=True)}</tbody>
+          </table>
+        </div>
+        <div class='diff-panel'>
+          <p class='section-label' style='margin:0 0 8px'>Still broken</p>
+          <table class='diff-table'>
+            <thead><tr><th>Row</th><th>Column</th><th>Current</th><th>Target</th></tr></thead>
+            <tbody>{_rows_html(remaining_rows, changed=False)}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    """
+
+
+def _benchmark_race_html() -> str:
+    results = _read_eval_results()
+    baseline = _read_baseline_results()
+    training = _training_summary()
+
+    lanes = [
+        ("Heuristic Surgeon", baseline.get("surgeon_advantage_accuracy_delta"), "Committed baseline over random."),
+        ("GRPO Checkpoint", results.get("surgeon_advantage_accuracy_delta"), "Current trained checkpoint over random."),
+    ]
+    scale = max([abs(value) for _, value, _ in lanes if value is not None] + [0.01])
+
+    lane_html = []
+    for label, value, detail in lanes:
+        if value is None:
+            width = 18
+            value_text = "Pending"
+            tone = "neutral"
+        else:
+            width = 18 + abs(value) / scale * 82
+            value_text = _format_pp(value)
+            tone = "good" if value >= 0 else "bad"
+        lane_html.append(
+            "<div class='race-row'>"
+            f"<div class='race-label'>{_escape(label)}</div>"
+            "<div class='race-track'><span class='race-bar "
+            f"race-{tone}' style='width:{width:.1f}%'></span></div>"
+            f"<div class='race-value'>{_escape(value_text)}</div>"
+            f"<div class='race-detail'>{_escape(detail)}</div>"
+            "</div>"
+        )
+
+    latest_reward = training["latest_reward"]
+    latest_reward_text = f"{latest_reward:+.2f}" if latest_reward is not None else "Pending"
+    invalid_text = (
+        f"{training['invalid_action_rate']:.1f}%"
+        if training["invalid_action_rate"] is not None
+        else "Pending"
+    )
+    return f"""
+    <div class='metric-card telemetry-card'>
+      <div class='metric-label'>Benchmark race</div>
+      <div class='race-board'>{"".join(lane_html)}</div>
+      <div class='race-foot'>
+        <span>Latest reward {latest_reward_text}</span>
+        <span>Invalid actions {invalid_text}</span>
+      </div>
+    </div>
+    """
+
+
+def _architecture_html() -> str:
+    cards = [
+        ("Observe", "Schema, suspect rows, and recent actions are packed into a structured prompt."),
+        ("Act", "The surgeon emits one constrained JSON repair action at a time."),
+        ("Score", "Reward is grounded in accuracy delta, tool logic, efficiency, and anti-shortcut checks."),
+        ("Escalate", "The corruptor advances from simple nulls to harder relational failures."),
+    ]
+    rendered = []
+    for title, detail in cards:
+        rendered.append(
+            "<div class='arch-card'>"
+            f"<div class='metric-label'>{_escape(title)}</div>"
+            f"<div class='metric-detail'>{_escape(detail)}</div>"
+            "</div>"
+        )
+    return "<div class='arch-grid'>" + "".join(rendered) + "</div>"
 
 
 DARK_CSS = """
@@ -495,6 +749,43 @@ body,
   line-height: 1.45;
 }
 .telemetry-card { min-height: 0; margin-bottom: 12px; }
+.progress-shell {
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid var(--df-border);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+}
+.progress-copy {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: end;
+}
+.progress-value {
+  margin-top: 4px;
+  color: var(--df-text);
+  font: 700 20px/1.1 'JetBrains Mono', monospace;
+}
+.progress-detail {
+  color: var(--df-soft);
+  font-size: 12px;
+  text-align: right;
+}
+.progress-track {
+  margin-top: 10px;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+  overflow: hidden;
+}
+.progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.95), rgba(56, 189, 248, 0.95));
+}
 .rollout-row {
   display: flex;
   align-items: center;
@@ -526,6 +817,138 @@ body,
 .tag-type   { background: rgba(245, 158, 11, 0.15); color:#fde68a; border: 1px solid rgba(245, 158, 11, 0.35); }
 .tag-fixed  { background: rgba(34, 197, 94, 0.16); color:#bbf7d0; border: 1px solid rgba(34, 197, 94, 0.35); }
 .tag-dup    { background: rgba(56, 189, 248, 0.16); color:#bae6fd; border: 1px solid rgba(56, 189, 248, 0.35); }
+.diff-shell {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--df-border);
+  border-radius: 8px;
+  background: rgba(8, 13, 26, 0.82);
+}
+.diff-stats,
+.diff-grid,
+.arch-grid {
+  display: grid;
+  gap: 12px;
+}
+.diff-stats {
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  margin-bottom: 12px;
+}
+.diff-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.diff-panel,
+.arch-card {
+  padding: 14px;
+  border: 1px solid var(--df-border);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+}
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.diff-table th,
+.diff-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.10);
+  text-align: left;
+  vertical-align: top;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--df-soft);
+  word-break: break-word;
+}
+.diff-table th {
+  color: var(--df-muted);
+  text-transform: uppercase;
+}
+.empty-cell {
+  color: var(--df-muted) !important;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.pill-fixed {
+  background: rgba(34, 197, 94, 0.16);
+  color: #bbf7d0;
+}
+.pill-regressed {
+  background: rgba(251, 113, 133, 0.16);
+  color: #fecdd3;
+}
+.pill-shifted {
+  background: rgba(56, 189, 248, 0.16);
+  color: #bae6fd;
+}
+.null-token {
+  color: #fde68a;
+  font-weight: 700;
+}
+.race-board {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+.race-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 86px;
+  gap: 10px;
+  align-items: center;
+}
+.race-label,
+.race-value {
+  color: var(--df-text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+.race-value {
+  text-align: right;
+}
+.race-track {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+  overflow: hidden;
+}
+.race-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+.race-good {
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.95), rgba(56, 189, 248, 0.95));
+}
+.race-bad {
+  background: linear-gradient(90deg, rgba(251, 113, 133, 0.95), rgba(245, 158, 11, 0.95));
+}
+.race-neutral {
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.85), rgba(203, 213, 225, 0.75));
+}
+.race-detail {
+  grid-column: 2 / 4;
+  color: var(--df-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.race-foot {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--df-soft);
+  font-size: 12px;
+}
+.arch-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
 .gradio-container button.primary,
 .gradio-container button[variant='primary'] {
   background: linear-gradient(135deg, #16a34a 0%, #0284c7 100%) !important;
@@ -541,14 +964,24 @@ body,
   .hero-copy h1 { font-size: 32px; }
   .evidence-grid,
   .scenario-grid,
-  .rollout-metrics { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+  .rollout-metrics,
+  .diff-grid,
+  .diff-stats,
+  .arch-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+  .race-row { grid-template-columns: 1fr; }
+  .race-value { text-align: left; }
+  .race-detail { grid-column: auto; }
 }
 @media (max-width: 640px) {
   .hero-copy h1 { font-size: 28px; }
   .evidence-grid,
   .scenario-grid,
-  .rollout-metrics { grid-template-columns: 1fr; }
+  .rollout-metrics,
+  .diff-grid,
+  .diff-stats,
+  .arch-grid { grid-template-columns: 1fr; }
   .panel { padding: 14px; }
+  .progress-copy { flex-direction: column; align-items: start; }
 }
 """
 
@@ -636,7 +1069,8 @@ def heuristic_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame) -> SurgeonAct
     return SurgeonAction(reasoning="no errors detected", tool_id=7, column=0, row_id=0)
 
 
-def render_ui_state(rollouts, current_state, gt, acc_before, agent_type):
+def render_ui_state(rollouts, original_state, current_state, gt, acc_before, agent_type,
+                    total_steps: int = 5, pending_step: int | None = None):
     acc_after = rc._field_accuracy(current_state, gt)
     success_rate_improvement = (
         ((acc_after - acc_before) / (1.0 - acc_before)) * 100 if acc_before < 1.0 else 0
@@ -644,9 +1078,11 @@ def render_ui_state(rollouts, current_state, gt, acc_before, agent_type):
     accuracy_delta = acc_after - acc_before
     total_reward = sum(rollout.get("reward", 0) for rollout in rollouts)
     provenance_title, provenance_body = _agent_provenance(agent_type)
+    diff_html = _diff_summary_html(original_state, current_state, gt)
 
     rollout_html = f"""
     <div style='font-family: JetBrains Mono, monospace;'>
+      {_progress_html(len(rollouts), total_steps, pending_step=pending_step)}
       <div class='metric-card telemetry-card'>
         <div class='metric-label'>Execution path</div>
         <div class='metric-value compact'>{_escape(provenance_title)}</div>
@@ -668,12 +1104,21 @@ def render_ui_state(rollouts, current_state, gt, acc_before, agent_type):
             reasoning_text = reasoning_text[:55] + "..."
         reasoning_text = _escape(reasoning_text)
         tool_name = _escape(rollout.get("tool_name", "?"))
+        location = _escape(f"r{rollout.get('row_id', '?')} / {rollout.get('column_name', '?')}")
+        components = rollout.get("components", {})
+        breakdown_parts = []
+        if components:
+            breakdown_parts.append(f"acc {components.get('accuracy_delta', 0.0):+.2f}")
+            breakdown_parts.append(f"eff {components.get('efficiency', 0.0):+.2f}")
+        breakdown = _escape(" | ".join(breakdown_parts)) if breakdown_parts else ""
 
         rollout_html += f"""
         <div class='rollout-row {css}'>
           <div style='color:#94a3b8; font-weight:700;'>STEP {idx + 1:02d}</div>
           <div style='color:#cbd5e1; flex:1; min-width:180px; font-style:italic;'>{reasoning_text}</div>
           <div class='tag tag-{"null" if rollout.get("is_baseline") else "fixed"}'>{tool_name}</div>
+          <div style='color:#94a3b8; white-space:nowrap;'>{location}</div>
+          <div style='color:#94a3b8; white-space:nowrap;'>{breakdown}</div>
           <div style='color:#fde68a; font-weight:600; white-space:nowrap;'>Reward={rollout.get("reward", 0):+.2f}</div>
         </div>"""
 
@@ -681,13 +1126,20 @@ def render_ui_state(rollouts, current_state, gt, acc_before, agent_type):
     repaired_display = current_state[[c for c in current_state.columns if c != "_is_deleted"]].head(8).copy()
     before_html = _score_card("Before", acc_before, "bad")
     after_html = _score_card("After", acc_after, "good" if acc_after >= acc_before else "bad")
-    return rollout_html, repaired_display, before_html, after_html
+    return rollout_html, repaired_display, before_html, after_html, diff_html
 
 
 def simulate_agent(agent_type, session_state):
     session_state = dict(session_state or _new_session_state())
     if session_state.get("dirty") is None:
-        yield _empty_state_html(), None, _score_card("Before", None), _score_card("After", None), session_state
+        yield (
+            _empty_state_html(),
+            None,
+            _score_card("Before", None),
+            _score_card("After", None),
+            _diff_summary_html(None, None, None),
+            session_state,
+        )
         return
 
     dirty = session_state["dirty"].copy()
@@ -696,8 +1148,22 @@ def simulate_agent(agent_type, session_state):
     env, acc_before = _build_rollout_env(dirty, gt, tier)
     display_cols = [c for c in env._state.columns if c != "_is_deleted"]
     rollouts = []
+    max_rollout_steps = 5
 
-    for _ in range(5):
+    for step_idx in range(max_rollout_steps):
+        yield (
+            *render_ui_state(
+                rollouts,
+                dirty,
+                env._state,
+                gt,
+                acc_before,
+                agent_type,
+                total_steps=max_rollout_steps,
+                pending_step=step_idx + 1,
+            ),
+            session_state,
+        )
         if agent_type == "Naive Baseline":
             target_row = None
             target_col = None
@@ -736,6 +1202,7 @@ def simulate_agent(agent_type, session_state):
                     None,
                     _score_card("Before", acc_before, "bad"),
                     _score_card("After", None),
+                    _diff_summary_html(dirty, env._state, gt),
                     session_state,
                 )
                 return
@@ -760,7 +1227,7 @@ def simulate_agent(agent_type, session_state):
                     row_id=0,
                 )
 
-        _, total_reward, done, _ = env.step(action)
+        _, total_reward, done, info = env.step(action)
         rollouts.append(
             {
                 "reasoning": action.reasoning,
@@ -768,10 +1235,24 @@ def simulate_agent(agent_type, session_state):
                 "reward": total_reward,
                 "selected": True,
                 "is_baseline": agent_type == "Naive Baseline",
+                "row_id": action.row_id,
+                "column_name": display_cols[action.column] if action.column < len(display_cols) else "?",
+                "components": info.get("reward_components", {}),
             }
         )
 
-        yield (*render_ui_state(rollouts, env._state, gt, acc_before, agent_type), session_state)
+        yield (
+            *render_ui_state(
+                rollouts,
+                dirty,
+                env._state,
+                gt,
+                acc_before,
+                agent_type,
+                total_steps=max_rollout_steps,
+            ),
+            session_state,
+        )
         if done:
             break
 
@@ -784,7 +1265,7 @@ def build_demo():
         session_state = gr.State(_new_session_state())
 
         gr.HTML(_hero_html())
-        gr.HTML(_evidence_snapshot_html())
+        evidence_snapshot = gr.HTML(_evidence_snapshot_html())
 
         with gr.Row():
             with gr.Column(scale=1, elem_classes="panel"):
@@ -808,10 +1289,12 @@ def build_demo():
                 with gr.Row():
                     score_before = gr.HTML(_score_card("Before", None))
                     score_after = gr.HTML(_score_card("After", None))
+                diff_html = gr.HTML(_diff_summary_html(None, None, None))
 
         with gr.Row(elem_classes="panel"):
             with gr.Column():
                 gr.HTML("<p class='section-label' style='margin:0 0 10px'>Training evidence</p>")
+                refresh_btn = gr.Button("Refresh Evidence", variant="secondary")
                 with gr.Row():
                     with gr.Column():
                         reward_plot = gr.LinePlot(
@@ -832,6 +1315,14 @@ def build_demo():
                             height=220,
                         )
 
+        with gr.Row(elem_classes="panel"):
+            with gr.Column():
+                gr.HTML("<p class='section-label' style='margin:0 0 10px'>Benchmark snapshot</p>")
+                benchmark_html = gr.HTML(_benchmark_race_html())
+            with gr.Column():
+                gr.HTML("<p class='section-label' style='margin:0 0 10px'>How it works</p>")
+                architecture_html = gr.HTML(_architecture_html())
+
         def generate_easy(state):
             display, stats_html, next_state = generate_episode(1, state)
             meta = next_state["meta"]
@@ -846,6 +1337,7 @@ def build_demo():
                 None,
                 _score_card("Before", acc_before, "bad"),
                 _score_card("After", None),
+                _diff_summary_html(next_state["dirty"], next_state["dirty"], next_state["gt"]),
             )
 
         def generate_hard(state):
@@ -862,11 +1354,12 @@ def build_demo():
                 None,
                 _score_card("Before", acc_before, "bad"),
                 _score_card("After", None),
+                _diff_summary_html(next_state["dirty"], next_state["dirty"], next_state["gt"]),
             )
 
-        def load_curves():
+        def load_dashboard():
             df = get_training_data()
-            return df, df
+            return _evidence_snapshot_html(), _benchmark_race_html(), df, df
 
         scenario_outputs = [
             dirty_view,
@@ -876,15 +1369,17 @@ def build_demo():
             repaired_view,
             score_before,
             score_after,
+            diff_html,
         ]
         btn_easy.click(fn=generate_easy, inputs=[session_state], outputs=scenario_outputs)
         btn_hard.click(fn=generate_hard, inputs=[session_state], outputs=scenario_outputs)
         run_btn.click(
             fn=simulate_agent,
             inputs=[agent_choice, session_state],
-            outputs=[rollout_html, repaired_view, score_before, score_after, session_state],
+            outputs=[rollout_html, repaired_view, score_before, score_after, diff_html, session_state],
         )
-        demo.load(fn=load_curves, outputs=[reward_plot, difficulty_plot])
+        refresh_btn.click(fn=load_dashboard, outputs=[evidence_snapshot, benchmark_html, reward_plot, difficulty_plot])
+        demo.load(fn=load_dashboard, outputs=[evidence_snapshot, benchmark_html, reward_plot, difficulty_plot])
 
     return demo
 
