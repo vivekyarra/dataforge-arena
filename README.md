@@ -197,8 +197,6 @@ class DataForgeEnv(BaseEnv):
 - [`tests/`](./tests): regression tests with `61` core checks plus `69` stress checks for parser fuzzing, reward bounds, tool coverage, schema integrity, and evidence files
 - [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb): recommended Colab notebook for the current stable training path
 - [`requirements-colab.txt`](./requirements-colab.txt): pinned Colab dependency stack for the notebook
-- [`pitch_script.md`](./pitch_script.md): three-minute judge narration with a demo moment
-- [`final_submission_summary.md`](./final_submission_summary.md): concise final evidence and pitch positioning
 - [`openenv.yaml`](./openenv.yaml): OpenEnv framework configuration for validation and submission
 
 ## Links
@@ -208,8 +206,6 @@ class DataForgeEnv(BaseEnv):
 | Live HF Space | https://huggingface.co/spaces/Vivek567/dataforge-arena |
 | Colab Notebook | [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb) |
 | Browser Artifact | [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html) |
-| Judge Pitch Script | [`pitch_script.md`](./pitch_script.md) |
-| HF Blog Post | https://huggingface.co/blog/Vivek567/dataforge-arena |
 | GitHub | https://github.com/vivekyarra/dataforge-arena |
 
 Built for the [Meta PyTorch OpenEnv AI Hackathon 2026](https://pytorch.org/event/openenv-ai-hackathon/)
