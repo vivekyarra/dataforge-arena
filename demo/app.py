@@ -5,6 +5,7 @@ import os
 import sys
 import threading
 import time
+import warnings
 from pathlib import Path
 
 import gradio as gr
@@ -17,6 +18,7 @@ from environment.env import DataForgeEnv, SurgeonAction
 from environment.reward import RewardComputer
 from environment.schemas import HEALTHCARE_SCHEMA, SURGEON_TOOLS
 from environment.validation import summarize_corruption
+from eval.evaluate import load_eval_pipeline, _resolve_loadable_model_path
 from training.parser import robust_parse_action
 from training.prompt import build_prompt
 
@@ -48,7 +50,11 @@ def _preferred_inference_dtype(torch_module, device: int):
 
 
 def local_model_available(model_path: str = LOCAL_MODEL_PATH) -> bool:
-    return Path(model_path).exists()
+    try:
+        _resolve_loadable_model_path(model_path)
+        return True
+    except FileNotFoundError:
+        return False
 
 
 def available_agent_choices(model_available: bool | None = None) -> list[str]:
@@ -117,17 +123,8 @@ def load_llm():
             return True, "Loaded local GRPO checkpoint."
 
         try:
-            from transformers import pipeline
-            import torch
-
             logger.info("Loading live GRPO checkpoint from %s", LOCAL_MODEL_PATH)
-            device = 0 if torch.cuda.is_available() else -1
-            llm_pipeline = pipeline(
-                "text-generation",
-                model=LOCAL_MODEL_PATH,
-                device=device,
-                torch_dtype=_preferred_inference_dtype(torch, device),
-            )
+            llm_pipeline = load_eval_pipeline(LOCAL_MODEL_PATH)
             logger.info("Live GRPO checkpoint loaded successfully.")
             return True, "Loaded local GRPO checkpoint."
         except Exception as exc:
@@ -138,13 +135,24 @@ def load_llm():
 
 def _run_llm(messages):
     with llm_lock:
-        return llm_pipeline(
-            messages,
-            max_new_tokens=256,
-            temperature=0.1,
-            do_sample=False,
-            num_return_sequences=1,
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"The following generation flags are not valid.*",
+                category=UserWarning,
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=r"Both `max_new_tokens`.*",
+                category=UserWarning,
+            )
+            return llm_pipeline(
+                messages,
+                max_new_tokens=96,
+                temperature=0.1,
+                do_sample=False,
+                num_return_sequences=1,
+            )
 
 
 def _agent_provenance(agent_type: str) -> tuple[str, str]:
@@ -163,13 +171,24 @@ def _read_eval_results() -> dict:
         return {}
 
 
+def _read_baseline_results() -> dict:
+    try:
+        with open(os.path.join(ROOT_DIR, "eval", "heuristic_results.json"), "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
 def _training_summary() -> dict:
     df = get_training_data()
     summary = {
         "parse_success": None,
+        "parse_first": None,
+        "parse_last": None,
         "tiers": "Pending",
         "last_step": "Pending",
         "latest_reward": None,
+        "best_reward": None,
     }
     if df.empty:
         return summary
@@ -178,6 +197,8 @@ def _training_summary() -> dict:
         values = pd.to_numeric(df["parse_success_rate"], errors="coerce").dropna()
         if len(values) > 0:
             summary["parse_success"] = float(values.mean() * 100)
+            summary["parse_first"] = float(values.iloc[0] * 100)
+            summary["parse_last"] = float(values.iloc[-1] * 100)
 
     if "difficulty" in df:
         tiers = sorted(pd.to_numeric(df["difficulty"], errors="coerce").dropna().astype(int).unique())
@@ -193,6 +214,7 @@ def _training_summary() -> dict:
         rewards = pd.to_numeric(df["total_reward"], errors="coerce").dropna()
         if len(rewards) > 0:
             summary["latest_reward"] = float(rewards.iloc[-1])
+            summary["best_reward"] = float(rewards.max())
 
     return summary
 
@@ -229,38 +251,46 @@ def _hero_html() -> str:
 
 def _evidence_snapshot_html() -> str:
     results = _read_eval_results()
+    baseline = _read_baseline_results()
     training = _training_summary()
     checkpoint_ready = local_model_available()
 
-    advantage = results.get("surgeon_advantage_accuracy_delta")
-    surgeon_delta = results.get("surgeon_avg_accuracy_delta")
+    grpo_advantage = results.get("surgeon_advantage_accuracy_delta")
+    grpo_delta = results.get("surgeon_avg_accuracy_delta")
     random_delta = results.get("random_avg_accuracy_delta")
-    episodes = results.get("episodes", "Pending")
+    grpo_episodes = results.get("episodes", "Pending")
+    heuristic_advantage = baseline.get("surgeon_advantage_accuracy_delta")
+    heuristic_episodes = baseline.get("episodes", "Pending")
     parse_success = training["parse_success"]
 
     cards = [
         _metric_card(
-            "Committed advantage",
-            _format_pp(advantage),
-            f"Heuristic vs random over {episodes} eval episodes",
-            _status_tone(advantage),
+            "Heuristic baseline",
+            _format_pp(heuristic_advantage),
+            f"Rule-based surgeon over {heuristic_episodes} eval episodes",
+            _status_tone(heuristic_advantage),
         ),
         _metric_card(
-            "Surgeon delta",
-            _format_pp(surgeon_delta),
-            f"Random baseline: {_format_pp(random_delta)}",
-            _status_tone(surgeon_delta),
+            "GRPO checkpoint",
+            _format_pp(grpo_advantage),
+            f"GRPO delta {_format_pp(grpo_delta)} vs random {_format_pp(random_delta)} over {grpo_episodes} episodes",
+            _status_tone(grpo_advantage),
         ),
         _metric_card(
             "Parse reliability",
             f"{parse_success:.2f}%" if parse_success is not None else "Pending",
-            f"Logged GRPO curriculum through tiers {training['tiers']}",
-            "good" if parse_success and parse_success >= 90 else "neutral",
+            (
+                f"First {training['parse_first']:.1f}% -> last {training['parse_last']:.1f}% | "
+                f"tiers {training['tiers']}"
+                if training["parse_first"] is not None and training["parse_last"] is not None
+                else f"Logged GRPO curriculum through tiers {training['tiers']}"
+            ),
+            "good" if parse_success and parse_success >= 50 else "neutral",
         ),
         _metric_card(
             "Live GRPO mode",
             "Available" if checkpoint_ready else "Checkpoint gated",
-            "Appears only when outputs/dataforge-surgeon exists",
+            "Appears only when a loadable checkpoint or adapter exists",
             "good" if checkpoint_ready else "neutral",
         ),
     ]
@@ -720,7 +750,7 @@ def simulate_agent(agent_type, session_state):
             try:
                 outputs = _run_llm(messages)
                 generated_text = outputs[0]["generated_text"][-1]["content"]
-                action = robust_parse_action(generated_text)
+                action = robust_parse_action(generated_text, require_fields=True)
             except Exception as exc:
                 logger.exception("LLM inference failed")
                 action = SurgeonAction(

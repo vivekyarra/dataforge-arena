@@ -404,6 +404,7 @@ def test_committed_heuristic_baseline_include_provenance():
 def test_server_requirements_cover_demo_entrypoint():
     requirements = Path("requirements-server.txt").read_text(encoding="utf-8")
     assert "gradio>=" in requirements
+    assert "peft>=" in requirements
 
 
 def test_server_info_advertises_accuracy_delta_only():
@@ -432,6 +433,68 @@ def test_demo_shows_live_mode_with_checkpoint():
         "Heuristic Surgeon",
         "Live GRPO Model",
     ]
+
+
+def test_demo_detects_adapter_checkpoint(tmp_path):
+    from demo.app import local_model_available
+
+    (tmp_path / "adapter_config.json").write_text("{}", encoding="utf-8")
+
+    assert local_model_available(str(tmp_path)) is True
+
+
+def test_demo_evidence_snapshot_reports_heuristic_and_grpo(monkeypatch, tmp_path):
+    from demo import app
+
+    eval_dir = tmp_path / "eval"
+    eval_dir.mkdir()
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+
+    (eval_dir / "results.json").write_text(
+        json.dumps(
+            {
+                "agent_mode": "grpo",
+                "surgeon_avg_accuracy_delta": -0.0004,
+                "random_avg_accuracy_delta": -0.0045,
+                "surgeon_advantage_accuracy_delta": 0.0041,
+                "episodes": 20,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (eval_dir / "heuristic_results.json").write_text(
+        json.dumps(
+            {
+                "agent_mode": "heuristic",
+                "surgeon_advantage_accuracy_delta": 0.0053,
+                "episodes": 20,
+            }
+        ),
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        {
+            "step": [0, 75],
+            "total_reward": [-1.4, -0.8],
+            "parse_success_rate": [0.25, 0.50],
+            "difficulty": [1, 2],
+        }
+    ).to_csv(logs_dir / "training_log.csv", index=False)
+
+    monkeypatch.setattr(app, "ROOT_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "EVAL_RESULTS_PATH", str(eval_dir / "results.json"))
+    monkeypatch.setattr(app, "LOG_PATH", str(logs_dir / "training_log.csv"))
+    monkeypatch.setattr(app, "LOCAL_MODEL_PATH", str(tmp_path / "outputs" / "missing"))
+
+    html = app._evidence_snapshot_html()
+
+    assert "Heuristic baseline" in html
+    assert "+0.53 pp" in html
+    assert "GRPO checkpoint" in html
+    assert "+0.41 pp" in html
+    assert "First 25.0% -&gt; last 50.0%" in html
+    assert "Checkpoint gated" in html
 
 
 def test_merge_duplicate_excludes_deleted_col(clean_df):

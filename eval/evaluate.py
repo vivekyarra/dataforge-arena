@@ -11,6 +11,7 @@ import os
 import random
 import sys
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -67,8 +68,19 @@ class LocalTextGenerator:
 
         import torch
 
-        with torch.no_grad():
-            outputs = self.model.generate(**inputs, **generate_kwargs)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"The following generation flags are not valid.*",
+                category=UserWarning,
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=r"Both `max_new_tokens`.*",
+                category=UserWarning,
+            )
+            with torch.no_grad():
+                outputs = self.model.generate(**inputs, **generate_kwargs)
         generated_ids = outputs[0][inputs["input_ids"].shape[-1]:]
         generated_text = self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
         return [{"generated_text": [*messages, {"role": "assistant", "content": generated_text}]}]
@@ -181,13 +193,13 @@ def load_eval_pipeline(model_path: str):
 
         model = AutoPeftModelForCausalLM.from_pretrained(
             str(resolved_path),
-            torch_dtype=dtype,
+            dtype=dtype,
             device_map="auto" if device >= 0 else None,
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
             str(resolved_path),
-            torch_dtype=dtype,
+            dtype=dtype,
             device_map="auto" if device >= 0 else None,
         )
     model.eval()
