@@ -50,7 +50,7 @@ CORRUPTOR_TOOLS = {
     # Tier 2 — harder to spot
     "inject_null_cluster": {"tier": 2, "reward": 2.0, "recoverable": True},
     "swap_date_format":    {"tier": 2, "reward": 2.5, "recoverable": True},
-    "cross_field_swap":    {"tier": 2, "reward": 3.0, "recoverable": True},
+    "inject_out_of_range_age":    {"tier": 2, "reward": 3.0, "recoverable": True},
     # Tier 3 — relational reasoning required
     "break_foreign_key":   {"tier": 3, "reward": 4.0, "recoverable": True},
     "duplicate_row_mutate":{"tier": 3, "reward": 4.5, "recoverable": True},

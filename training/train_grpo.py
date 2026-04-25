@@ -20,7 +20,7 @@ from training.parser import robust_parse_action
 from training.logger import TrainingLogger
 from environment.env import DataForgeEnv, SurgeonAction
 from environment.corruptor import Corruptor
-from environment.schemas import HEALTHCARE_SCHEMA
+from environment.schemas import HEALTHCARE_SCHEMA, FINANCIAL_SCHEMA
 
 # -- Step 1: Detect compute and select model -----------------------
 gpu_info = detect_gpu()
@@ -32,11 +32,13 @@ print(f"Steps: {model_cfg['target_steps']}")
 print(f"{'='*50}\n")
 
 # -- Step 2: Load environment ---------------------------------------
-clean_data = pd.read_csv("data/healthcare_clean.csv")
+clean_data_hc = pd.read_csv("data/healthcare_clean.csv")
+clean_data_fin = pd.read_csv("data/financial_clean.csv")
+
 corruptor = Corruptor()
 env = DataForgeEnv(corruptor=corruptor,
                    schema=HEALTHCARE_SCHEMA,
-                   clean_data=clean_data)
+                   clean_data=clean_data_hc)
 logger = TrainingLogger(path="logs/training_log.csv")
 recent_actions = []
 
@@ -79,12 +81,22 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
     """
     rewards = []
     component_accum = {
-        "accuracy_delta": [], "tool_logic": [], 
+        "accuracy_delta": [], "accuracy_absolute": [], "tool_logic": [], 
         "reasoning": [], "efficiency": [], "anti_hack": []
     }
     
     for completion in completions:
         total_rollouts[0] += 1
+        
+        # 50/50 Multi-Schema Flip
+        import random
+        if random.random() < 0.5:
+            env._schema = HEALTHCARE_SCHEMA
+            env._clean_data = clean_data_hc
+        else:
+            env._schema = FINANCIAL_SCHEMA
+            env._clean_data = clean_data_fin
+
         # CRITICAL: independent reset per completion
         obs = env.reset()
         try:
@@ -107,7 +119,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
             
         rewards.append(reward_dict["total"])
     
-    # ADD THIS LINE — advance corruptor epoch every training step
+    # Advance corruptor epoch every training step
     corruptor.record_episode(sum(rewards) / max(len(rewards), 1))
     
     # Log every 5 steps
@@ -135,18 +147,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
     current_step[0] += 1
     return rewards
 
-# -- Step 6: Safe advantage normalization --------------------------
-def safe_advantage_norm(rewards):
-    """Handles std=0 -- prevents NaN gradients."""
-    R = torch.tensor(rewards, dtype=torch.float32)
-    std = R.std()
-    if std < 1e-8:
-        return [0.0] * len(rewards)  # skip update
-    return ((R - R.mean()) / (std + 1e-8)).tolist()
-
-
-
-# -- Step 8: Train -------------------------------------------------
+# -- Step 6: Train -------------------------------------------------
 print("\nStarting GRPO training...")
 print(f"Target: {model_cfg['target_steps']} steps\n")
 

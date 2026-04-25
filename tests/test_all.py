@@ -58,18 +58,32 @@ def test_column_null_rate_limit(corruptor, clean_df):
     assert not valid
 
 def test_tier_transitions(corruptor):
-    corruptor._epoch = 49
     assert corruptor.current_tier() == 1
-    corruptor._epoch = 65
+    
+    # Not enough epochs
+    corruptor._epoch = 29
+    corruptor._recent_rewards.extend([1.0] * 20)
+    corruptor._update_tier()
+    assert corruptor.current_tier() == 1
+    
+    # Epochs OK, Reward OK
+    corruptor._epoch = 31
+    corruptor._update_tier()
     assert corruptor.current_tier() == 2
-    corruptor._epoch = 115
+    
+    # Advance to Tier 3
+    corruptor._epoch = 75
+    corruptor._recent_rewards.extend([1.0] * 20)
+    corruptor._update_tier()
     assert corruptor.current_tier() == 3
 
 def test_corruptor_is_transitioning(corruptor):
-    corruptor._epoch = 55
+    corruptor._epoch = 35
     assert corruptor.is_transitioning()
-    corruptor._epoch = 40
+    corruptor._epoch = 45
     assert not corruptor.is_transitioning()
+    corruptor._epoch = 75
+    assert corruptor.is_transitioning()
 
 
 # -- Reward tests --------------------------------------------------

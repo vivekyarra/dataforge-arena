@@ -19,7 +19,9 @@ env_lock = asyncio.Lock()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global env
-    clean_data = pd.read_csv("data/healthcare_clean.csv")
+    import os
+    ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    clean_data = pd.read_csv(os.path.join(ROOT_DIR, "data", "healthcare_clean.csv"))
     env = DataForgeEnv(
         corruptor=Corruptor(),
         schema=HEALTHCARE_SCHEMA,

@@ -95,7 +95,7 @@ class Corruptor:
     # -- Tier 2 tools ----------------------------------------------
     def _corrupt_tier2(self, df: pd.DataFrame) -> tuple:
         tool = random.choice(["inject_null_cluster", "swap_date_format",
-                               "cross_field_swap"])
+                               "inject_out_of_range_age"])
         metadata = {"tool": tool}
 
         if tool == "inject_null_cluster":
@@ -119,7 +119,7 @@ class Corruptor:
             else:
                 return self._corrupt_tier1(df)
 
-        elif tool == "cross_field_swap":
+        elif tool == "inject_out_of_range_age":
             if "age" in df.columns and "birth_year" in df.columns:
                 row = random.randint(0, len(df) - 1)
                 df.at[row, "age"] = random.randint(80, 120)

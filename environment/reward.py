@@ -49,8 +49,9 @@ class RewardComputer:
         )
         rewards["total"] = total
         
-        # BUG 1 FIX: Episode complete based on near-perfect accuracy OR
-        # improvement delta from starting accuracy exceeds 0.05
+        # NOTE: improvement > 0.05 rarely triggers for single cell fixes.
+        # It functionally acts as an early termination gate for massive structural
+        # fixes (like duplicate_row_mutate) that instantly restore >5% accuracy.
         start_acc = starting_accuracy if starting_accuracy is not None else prev_accuracy
         improvement = current_acc - start_acc
         rewards["episode_complete"] = (current_acc >= 0.999) or (improvement > 0.05)

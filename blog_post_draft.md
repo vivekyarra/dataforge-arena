@@ -39,9 +39,9 @@ Our environment consists of two primary actors:
 
 | Tier | Epochs | What the Corruptor Does | What the Surgeon Must Learn |
 |------|--------|------------------------|---------------------------|
-| **1** | 0–49 | Single null injection, type errors (`ERR_42`) | Basic imputation, type detection |
-| **2** | 50–99 | Null clusters, date format swaps, cross-field inconsistencies | Pattern recognition, multi-cell correlation |
-| **3** | 100+ | Foreign key violations, duplicate rows with mutation | Relational reasoning, merge/delete decisions |
+| **1** | 0–29 | Single null injection, type errors (`ERR_42`) | Basic imputation, type detection |
+| **2** | 30–69 | Null clusters, date format swaps, out-of-range bounds | Pattern recognition, multi-cell correlation |
+| **3** | 70+ | Foreign key violations, duplicate rows with mutation | Relational reasoning, merge/delete decisions |
 
 ### 6-Signal Reward Computer
 
