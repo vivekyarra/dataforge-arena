@@ -1,3 +1,12 @@
+---
+title: DataForge Arena
+emoji: 🛠️
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
 # DataForge Arena
 
 > **An OpenEnv benchmark for training and auditing data-repair agents under adversarial tabular corruption.**
