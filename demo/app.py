@@ -79,7 +79,7 @@ def _escape(value) -> str:
 
 def _format_pp(value: float | None) -> str:
     if value is None:
-        return "Pending"
+        return "—"
     return f"{float(value) * 100:+.2f} pp"
 
 
@@ -140,31 +140,20 @@ def load_llm():
 def _run_llm(messages):
     with llm_lock:
         with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message=r"The following generation flags are not valid.*",
-                category=UserWarning,
-            )
-            warnings.filterwarnings(
-                "ignore",
-                message=r"Both `max_new_tokens`.*",
-                category=UserWarning,
-            )
+            warnings.filterwarnings("ignore", message=r"The following generation flags are not valid.*", category=UserWarning)
+            warnings.filterwarnings("ignore", message=r"Both `max_new_tokens`.*", category=UserWarning)
             return llm_pipeline(
-                messages,
-                max_new_tokens=96,
-                temperature=0.1,
-                do_sample=False,
-                num_return_sequences=1,
+                messages, max_new_tokens=96, temperature=0.1,
+                do_sample=False, num_return_sequences=1,
             )
 
 
 def _agent_provenance(agent_type: str) -> tuple[str, str]:
     if agent_type == "Naive Baseline":
-        return "Rule-based baseline", "Simple null and ERR_* scan with no learned policy."
+        return "Naive Baseline", "Simple null and ERR_* scan with no learned policy."
     if agent_type == "Heuristic Surgeon":
-        return "Rule-based heuristic", "Deterministic repair policy used for the current committed evaluation evidence."
-    return "Local GRPO checkpoint", "Live inference from a local trained checkpoint in outputs/dataforge-surgeon."
+        return "Heuristic Surgeon", "Deterministic repair policy — committed evaluation baseline."
+    return "Live GRPO Checkpoint", "Live inference from trained local checkpoint in outputs/dataforge-surgeon."
 
 
 def _read_eval_results() -> dict:
@@ -186,94 +175,132 @@ def _read_baseline_results() -> dict:
 def _training_summary() -> dict:
     df = get_training_data()
     summary = {
-        "parse_success": None,
-        "parse_first": None,
-        "parse_last": None,
-        "parse_recovered_rate": None,
-        "invalid_action_rate": None,
-        "dominant_tool": None,
-        "dominant_tool_rate": None,
-        "tiers": "Pending",
-        "last_step": "Pending",
-        "latest_reward": None,
-        "best_reward": None,
+        "parse_success": None, "parse_first": None, "parse_last": None,
+        "parse_recovered_rate": None, "invalid_action_rate": None,
+        "dominant_tool": None, "dominant_tool_rate": None,
+        "tiers": "—", "last_step": "—", "latest_reward": None, "best_reward": None,
     }
     if df.empty:
         return summary
 
+    for key, col in [("parse_success", "parse_success_rate"), ("parse_first", None), ("parse_last", None)]:
+        if col and col in df:
+            vals = pd.to_numeric(df[col], errors="coerce").dropna()
+            if len(vals):
+                summary["parse_success"] = float(vals.mean() * 100)
+                summary["parse_first"] = float(vals.iloc[0] * 100)
+                summary["parse_last"] = float(vals.iloc[-1] * 100)
+
     if "parse_success_rate" in df:
-        values = pd.to_numeric(df["parse_success_rate"], errors="coerce").dropna()
-        if len(values) > 0:
-            summary["parse_success"] = float(values.mean() * 100)
-            summary["parse_first"] = float(values.iloc[0] * 100)
-            summary["parse_last"] = float(values.iloc[-1] * 100)
+        vals = pd.to_numeric(df["parse_success_rate"], errors="coerce").dropna()
+        if len(vals):
+            summary["parse_success"] = float(vals.mean() * 100)
+            summary["parse_first"] = float(vals.iloc[0] * 100)
+            summary["parse_last"] = float(vals.iloc[-1] * 100)
 
     if "parse_recovered_rate" in df:
-        values = pd.to_numeric(df["parse_recovered_rate"], errors="coerce").dropna()
-        if len(values) > 0:
-            summary["parse_recovered_rate"] = float(values.iloc[-1] * 100)
+        vals = pd.to_numeric(df["parse_recovered_rate"], errors="coerce").dropna()
+        if len(vals): summary["parse_recovered_rate"] = float(vals.iloc[-1] * 100)
 
     if "invalid_action_rate" in df:
-        values = pd.to_numeric(df["invalid_action_rate"], errors="coerce").dropna()
-        if len(values) > 0:
-            summary["invalid_action_rate"] = float(values.iloc[-1] * 100)
+        vals = pd.to_numeric(df["invalid_action_rate"], errors="coerce").dropna()
+        if len(vals): summary["invalid_action_rate"] = float(vals.iloc[-1] * 100)
 
     if "dominant_tool" in df:
-        values = pd.to_numeric(df["dominant_tool"], errors="coerce").dropna()
-        if len(values) > 0:
-            summary["dominant_tool"] = int(values.iloc[-1])
+        vals = pd.to_numeric(df["dominant_tool"], errors="coerce").dropna()
+        if len(vals): summary["dominant_tool"] = int(vals.iloc[-1])
 
     if "dominant_tool_rate" in df:
-        values = pd.to_numeric(df["dominant_tool_rate"], errors="coerce").dropna()
-        if len(values) > 0:
-            summary["dominant_tool_rate"] = float(values.iloc[-1] * 100)
+        vals = pd.to_numeric(df["dominant_tool_rate"], errors="coerce").dropna()
+        if len(vals): summary["dominant_tool_rate"] = float(vals.iloc[-1] * 100)
 
     if "difficulty" in df:
         tiers = sorted(pd.to_numeric(df["difficulty"], errors="coerce").dropna().astype(int).unique())
         if tiers:
-            summary["tiers"] = f"{tiers[0]}-{tiers[-1]}" if len(tiers) > 1 else str(tiers[0])
+            summary["tiers"] = f"{tiers[0]}–{tiers[-1]}" if len(tiers) > 1 else str(tiers[0])
 
     if "step" in df:
         steps = pd.to_numeric(df["step"], errors="coerce").dropna()
-        if len(steps) > 0:
-            summary["last_step"] = str(int(steps.max()))
+        if len(steps): summary["last_step"] = str(int(steps.max()))
 
     if "total_reward" in df:
         rewards = pd.to_numeric(df["total_reward"], errors="coerce").dropna()
-        if len(rewards) > 0:
+        if len(rewards):
             summary["latest_reward"] = float(rewards.iloc[-1])
             summary["best_reward"] = float(rewards.max())
 
     return summary
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  HTML BUILDERS — PREMIUM REDESIGN
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _kpi(label: str, value: str, sub: str = "", tone: str = "neutral") -> str:
+    """A clean KPI stat block."""
+    tone_map = {
+        "good":    ("var(--g)", "var(--g-dim)", "var(--g-border)"),
+        "bad":     ("var(--r)", "var(--r-dim)", "var(--r-border)"),
+        "warn":    ("var(--a)", "var(--a-dim)", "var(--a-border)"),
+        "neutral": ("var(--t2)", "transparent",  "var(--border)"),
+    }
+    col, bg, bord = tone_map.get(tone, tone_map["neutral"])
+    return f"""
+    <div class="kpi" style="border-color:{bord}; background:{bg};">
+      <div class="kpi-label">{_escape(label)}</div>
+      <div class="kpi-value" style="color:{col};">{_escape(value)}</div>
+      {f'<div class="kpi-sub">{_escape(sub)}</div>' if sub else ''}
+    </div>"""
+
+
 def _metric_card(label: str, value: str, detail: str, tone: str = "neutral") -> str:
-    return (
-        f"<div class='metric-card metric-{tone}'>"
-        f"<div class='metric-label'>{_escape(label)}</div>"
-        f"<div class='metric-value'>{_escape(value)}</div>"
-        f"<div class='metric-detail'>{_escape(detail)}</div>"
-        "</div>"
-    )
+    """Legacy alias — maps to _kpi for backwards compat."""
+    return _kpi(label, value, detail, tone)
 
 
 def _hero_html() -> str:
     return """
-    <section class='hero-shell'>
-      <div class='hero-copy'>
-        <div class='eyebrow'>OpenEnv enterprise benchmark</div>
-        <h1>DataForge Arena</h1>
-        <p>
-          A judge-visible RL arena where data repair agents face adversarial tabular corruption,
-          choose grounded tools, and earn reward only when the dataset measurably improves.
-        </p>
+    <div class="hero">
+      <div class="hero-bg-grid"></div>
+      <div class="hero-glow"></div>
+      <div class="hero-inner">
+        <div class="hero-left">
+          <div class="hero-eyebrow">
+            <span class="pulse-dot"></span>
+            OpenEnv Enterprise Benchmark
+          </div>
+          <h1 class="hero-title">DataForge<br><span class="hero-accent">Arena</span></h1>
+          <p class="hero-body">
+            A judge-visible RL arena where data repair agents face adversarial
+            tabular corruption, choose grounded tools, and earn reward only when
+            the dataset measurably improves.
+          </p>
+        </div>
+        <div class="hero-steps">
+          <div class="hero-step">
+            <div class="step-num">01</div>
+            <div class="step-body">
+              <div class="step-title">Corrupt</div>
+              <div class="step-desc">Generate adversarial enterprise data failures across 3 difficulty tiers.</div>
+            </div>
+          </div>
+          <div class="hero-step">
+            <div class="step-num">02</div>
+            <div class="step-body">
+              <div class="step-title">Repair</div>
+              <div class="step-desc">Run baseline, heuristic, or trained GRPO surgeon agent.</div>
+            </div>
+          </div>
+          <div class="hero-step">
+            <div class="step-num">03</div>
+            <div class="step-body">
+              <div class="step-title">Verify</div>
+              <div class="step-desc">Inspect accuracy deltas, reward DNA, and action traces.</div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class='hero-steps'>
-        <div><span>1</span><strong>Corrupt</strong><small>Generate solvable enterprise data failures.</small></div>
-        <div><span>2</span><strong>Repair</strong><small>Run baseline, heuristic, or local GRPO surgeon.</small></div>
-        <div><span>3</span><strong>Verify</strong><small>Inspect accuracy deltas and action traces.</small></div>
-      </div>
-    </section>
+    </div>
     """
 
 
@@ -286,110 +313,97 @@ def _evidence_snapshot_html() -> str:
     grpo_advantage = results.get("surgeon_advantage_accuracy_delta")
     grpo_delta = results.get("surgeon_avg_accuracy_delta")
     random_delta = results.get("random_avg_accuracy_delta")
-    grpo_episodes = results.get("episodes", "Pending")
+    grpo_episodes = results.get("episodes", "—")
     heuristic_advantage = baseline.get("surgeon_advantage_accuracy_delta")
-    heuristic_episodes = baseline.get("episodes", "Pending")
+    heuristic_episodes = baseline.get("episodes", "—")
     parse_success = training["parse_success"]
+
     recovery_detail = ""
     if training["parse_recovered_rate"] is not None:
-        recovery_detail = f" | recovered {training['parse_recovered_rate']:.1f}%"
-    tool_detail = ""
-    if (
-        training["dominant_tool"] is not None
-        and training["dominant_tool"] >= 0
-        and training["dominant_tool_rate"] is not None
-    ):
-        tool_name = SURGEON_TOOLS.get(training["dominant_tool"], {"name": "UNKNOWN"})["name"]
-        tool_detail = f" | dominant {tool_name} @{training['dominant_tool_rate']:.0f}%"
+        recovery_detail = f" · recovered {training['parse_recovered_rate']:.1f}%"
+
+    ps_str = f"{parse_success:.1f}%" if parse_success is not None else "—"
+    ps_sub = ""
+    if training["parse_first"] is not None:
+        ps_sub = (
+            f"First {training['parse_first']:.1f}% -> last {training['parse_last']:.1f}%"
+            f" · tiers {training['tiers']}{recovery_detail}"
+        )
 
     cards = [
-        _metric_card(
-            "Heuristic baseline",
-            _format_pp(heuristic_advantage),
-            f"Rule-based surgeon over {heuristic_episodes} eval episodes",
-            _status_tone(heuristic_advantage),
-        ),
-        _metric_card(
-            "GRPO checkpoint",
-            _format_pp(grpo_advantage),
-            f"GRPO delta {_format_pp(grpo_delta)} vs random {_format_pp(random_delta)} over {grpo_episodes} episodes",
-            _status_tone(grpo_advantage),
-        ),
-        _metric_card(
-            "Parse reliability",
-            f"{parse_success:.2f}%" if parse_success is not None else "Pending",
-            (
-                f"First {training['parse_first']:.1f}% -> last {training['parse_last']:.1f}% | "
-                f"tiers {training['tiers']}{recovery_detail}{tool_detail}"
-                if training["parse_first"] is not None and training["parse_last"] is not None
-                else f"Logged GRPO curriculum through tiers {training['tiers']}"
-            ),
-            "good" if parse_success and parse_success >= 50 else "neutral",
-        ),
-        _metric_card(
-            "Live GRPO mode",
-            "Available" if checkpoint_ready else "Checkpoint gated",
-            "Appears only when a loadable checkpoint or adapter exists",
-            "good" if checkpoint_ready else "neutral",
-        ),
+        _kpi("Heuristic baseline", _format_pp(heuristic_advantage),
+              f"Rule-based surgeon · {heuristic_episodes} episodes",
+              _status_tone(heuristic_advantage)),
+        _kpi("GRPO checkpoint", _format_pp(grpo_advantage),
+              f"vs random {_format_pp(random_delta)} · {grpo_episodes} episodes",
+              _status_tone(grpo_advantage)),
+        _kpi("Parse Reliability", ps_str, ps_sub or f"Tiers {training['tiers']}",
+              "good" if parse_success and parse_success >= 50 else "neutral"),
+        _kpi("Live GRPO", "Ready" if checkpoint_ready else "Checkpoint gated",
+              "Checkpoint found" if checkpoint_ready else "No checkpoint at outputs/dataforge-surgeon",
+              "good" if checkpoint_ready else "neutral"),
     ]
-    return "<section class='evidence-grid'>" + "".join(cards) + "</section>"
+    return f"<div class='evidence-strip'>{''.join(cards)}</div>"
 
 
 def _telemetry_intro_html():
     if local_model_available():
-        availability = "Local GRPO checkpoint detected. Live inference is available for this session."
+        msg = "Local GRPO checkpoint detected — live inference available."
         tone = "good"
     else:
-        availability = (
-            "No local GRPO checkpoint detected. The demo stays honest and exposes baseline plus heuristic evidence paths."
-        )
+        msg = "No local checkpoint found. Baseline and heuristic paths active."
         tone = "neutral"
-    return (
-        f"<div class='metric-card metric-{tone} telemetry-card'>"
-        "<div class='metric-label'>Mode inventory</div>"
-        f"<div class='metric-detail'>{_escape(availability)}</div>"
-        "</div>"
-    )
+    col = "var(--g)" if tone == "good" else "var(--t2)"
+    return f"""
+    <div class="mode-banner" style="border-color:{'var(--g-border)' if tone=='good' else 'var(--border)'};">
+      <span class="mode-dot" style="background:{col};"></span>
+      <span class="mode-text">{_escape(msg)}</span>
+    </div>"""
 
 
 def _empty_state_html():
-    return (
-        "<div class='metric-card telemetry-card'>"
-        "<div class='metric-label'>Ready</div>"
-        "<div class='metric-value compact'>Awaiting scenario</div>"
-        "<div class='metric-detail'>Generate a Tier 1 or Tier 3 corruption episode, then execute an agent path.</div>"
-        "</div>"
-    )
+    return """
+    <div class="empty-state">
+      <div class="empty-icon">◎</div>
+      <div class="empty-title">Arena Idle</div>
+      <div class="empty-desc">Generate a Tier 1 or Tier 3 scenario, then execute an agent to begin.</div>
+    </div>"""
 
 
 def _scenario_ready_html(meta: dict, acc_before: float, total_errors: int) -> str:
-    return (
-        "<div class='metric-card metric-warn telemetry-card'>"
-        "<div class='metric-label'>Scenario armed</div>"
-        f"<div class='metric-value compact'>{_escape(meta.get('tool', 'unknown'))}</div>"
-        f"<div class='metric-detail'>Starting health {_escape(f'{acc_before:.1%}')} with {_escape(total_errors)} visible schema issues.</div>"
-        "</div>"
-    )
+    tool = meta.get("tool", "unknown")
+    return f"""
+    <div class="scenario-armed">
+      <div class="scenario-armed-header">
+        <span class="pulse-dot"></span>
+        <span>Scenario Armed</span>
+      </div>
+      <div class="scenario-armed-tool">{_escape(tool)}</div>
+      <div class="scenario-armed-stats">
+        <span>Health <strong>{acc_before:.1%}</strong></span>
+        <span>·</span>
+        <span><strong>{total_errors}</strong> visible issues</span>
+      </div>
+    </div>"""
 
 
 def _score_card(label: str, value: float | None, tone: str = "neutral") -> str:
-    display = f"{value:.1%}" if value is not None else "Pending"
-    return _metric_card(label, display, "Field-level dataset accuracy", tone)
+    display = f"{value:.1%}" if value is not None else "—"
+    return _kpi(label, display, "Field-level accuracy", tone)
 
 
 def _unavailable_html(message: str) -> str:
-    return (
-        "<div class='metric-card metric-bad telemetry-card'>"
-        "<div class='metric-label'>Live model unavailable</div>"
-        f"<div class='metric-detail'>{_escape(message)}</div>"
-        "</div>"
-    )
+    return f"""
+    <div class="unavail-banner">
+      <div class="unavail-icon">✕</div>
+      <div class="unavail-title">Model Unavailable</div>
+      <div class="unavail-desc">{_escape(message)}</div>
+    </div>"""
 
 
 def _format_cell_value(value) -> str:
     if pd.isna(value):
-        return "<span class='null-token'>NULL</span>"
+        return "<span class='null-tok'>NULL</span>"
     return _escape(value)
 
 
@@ -399,728 +413,213 @@ def _tool_name(tool_id: int | None) -> str:
 
 def _progress_html(completed_steps: int, total_steps: int, pending_step: int | None = None) -> str:
     total_steps = max(total_steps, 1)
-    visual_progress = completed_steps + (0.35 if pending_step is not None else 0.0)
-    width = min(100.0, max(0.0, visual_progress / total_steps * 100))
-    active_step = pending_step if pending_step is not None else max(completed_steps, 1)
-    phase = "Selecting next repair" if pending_step is not None else "Trajectory updated"
+    visual = completed_steps + (0.4 if pending_step is not None else 0.0)
+    pct = min(100.0, max(0.0, visual / total_steps * 100))
+    active = pending_step if pending_step is not None else max(completed_steps, 1)
+    phase = "Running…" if pending_step is not None else "Complete"
     return f"""
-    <div class='progress-shell'>
-      <div class='progress-copy'>
+    <div class="rollout-progress">
+      <div class="rp-row">
         <div>
-          <div class='metric-label'>Rollout progress</div>
-          <div class='progress-value'>Step {active_step}/{total_steps}</div>
+          <div class="kpi-label">Rollout Progress</div>
+          <div class="rp-step">Step {active} / {total_steps}</div>
         </div>
-        <div class='progress-detail'>{_escape(phase)}</div>
+        <div class="rp-phase">{_escape(phase)}</div>
       </div>
-      <div class='progress-track'><span style='width:{width:.1f}%'></span></div>
-    </div>
-    """
+      <div class="rp-track"><span class="rp-fill" style="width:{pct:.1f}%"></span></div>
+    </div>"""
 
 
-def _diff_summary_html(original_state: pd.DataFrame | None, current_state: pd.DataFrame | None, gt: pd.DataFrame | None) -> str:
+def _diff_summary_html(original_state, current_state, gt) -> str:
     if original_state is None or current_state is None or gt is None:
-        return (
-            "<div class='diff-shell'>"
-            "<div class='metric-label'>Change audit</div>"
-            "<div class='metric-detail'>Run a scenario to inspect fixed cells, regressions, and remaining issues.</div>"
-            "</div>"
-        )
+        return """
+        <div class="diff-placeholder">
+          <div class="kpi-label">Change Audit</div>
+          <div class="diff-placeholder-text">Run a scenario to inspect fixed cells, regressions, and remaining issues.</div>
+        </div>"""
 
     display_cols = [c for c in current_state.columns if c != "_is_deleted"]
     row_limit = min(len(current_state), len(gt))
-    changed_rows = []
-    remaining_rows = []
-    fixed_count = 0
-    regressed_count = 0
-    remaining_count = 0
+    changed_rows, remaining_rows = [], []
+    fixed_count = regressed_count = remaining_count = 0
 
-    for row_idx in range(row_limit):
-        for col_name in display_cols:
-            before = original_state.at[row_idx, col_name]
-            after = current_state.at[row_idx, col_name]
-            target = gt.at[row_idx, col_name]
+    for ri in range(row_limit):
+        for col in display_cols:
+            before = original_state.at[ri, col]
+            after = current_state.at[ri, col]
+            target = gt.at[ri, col]
             before_ok = rc._values_match(before, target)
             after_ok = rc._values_match(after, target)
-
             if not after_ok:
                 remaining_count += 1
-                if len(remaining_rows) < 6:
-                    remaining_rows.append(
-                        (
-                            row_idx,
-                            col_name,
-                            _format_cell_value(after),
-                            _format_cell_value(target),
-                        )
-                    )
-
+                if len(remaining_rows) < 8:
+                    remaining_rows.append((ri, col, _format_cell_value(after), _format_cell_value(target)))
             if not rc._values_match(before, after):
-                if (not before_ok) and after_ok:
-                    badge = "Fixed"
-                    badge_cls = "pill-fixed"
+                if not before_ok and after_ok:
+                    badge, cls = "Fixed", "badge-fixed"
                     fixed_count += 1
                 elif before_ok and not after_ok:
-                    badge = "Regressed"
-                    badge_cls = "pill-regressed"
+                    badge, cls = "Regressed", "badge-regressed"
                     regressed_count += 1
                 else:
-                    badge = "Shifted"
-                    badge_cls = "pill-shifted"
+                    badge, cls = "Shifted", "badge-shifted"
+                if len(changed_rows) < 8:
+                    changed_rows.append((badge, cls, ri, col,
+                                         _format_cell_value(before), _format_cell_value(after), _format_cell_value(target)))
 
-                if len(changed_rows) < 6:
-                    changed_rows.append(
-                        (
-                            badge,
-                            badge_cls,
-                            row_idx,
-                            col_name,
-                            _format_cell_value(before),
-                            _format_cell_value(after),
-                            _format_cell_value(target),
-                        )
-                    )
-
-    def _rows_html(rows, changed: bool) -> str:
+    def _rows(rows, changed):
         if not rows:
-            label = "No agent edits yet." if changed else "No unresolved cells in view."
-            return f"<tr><td colspan='6' class='empty-cell'>{label}</td></tr>"
-
-        rendered = []
+            txt = "No edits yet." if changed else "All cells aligned."
+            return f"<tr><td colspan='6' class='empty-row'>{txt}</td></tr>"
+        out = []
         for row in rows:
             if changed:
-                badge, badge_cls, row_idx, col_name, before, after, target = row
-                rendered.append(
-                    "<tr>"
-                    f"<td><span class='pill {badge_cls}'>{badge}</span></td>"
-                    f"<td>r{row_idx}</td>"
-                    f"<td>{_escape(col_name)}</td>"
-                    f"<td>{before}</td>"
-                    f"<td>{after}</td>"
-                    f"<td>{target}</td>"
-                    "</tr>"
-                )
+                badge, cls, ri, col, before, after, target = row
+                out.append(f"<tr><td><span class='dbadge {cls}'>{badge}</span></td>"
+                            f"<td class='mono'>r{ri}</td><td class='mono'>{_escape(col)}</td>"
+                            f"<td>{before}</td><td>{after}</td><td>{target}</td></tr>")
             else:
-                row_idx, col_name, after, target = row
-                rendered.append(
-                    "<tr>"
-                    f"<td>r{row_idx}</td>"
-                    f"<td>{_escape(col_name)}</td>"
-                    f"<td>{after}</td>"
-                    f"<td>{target}</td>"
-                    "</tr>"
-                )
-        return "".join(rendered)
+                ri, col, after, target = row
+                out.append(f"<tr><td class='mono'>r{ri}</td><td class='mono'>{_escape(col)}</td>"
+                            f"<td>{after}</td><td>{target}</td></tr>")
+        return "".join(out)
+
+    fc_tone = "good" if fixed_count else "neutral"
+    rc_tone = "bad" if regressed_count else "good"
+    rem_tone = "warn" if remaining_count else "good"
 
     return f"""
-    <div class='diff-shell'>
-      <div class='diff-stats'>
-        {_metric_card("Cells fixed", str(fixed_count), "Agent edits that now match ground truth", "good" if fixed_count else "neutral")}
-        {_metric_card("Regressions", str(regressed_count), "Edits that moved away from ground truth", "bad" if regressed_count else "good")}
-        {_metric_card("Remaining issues", str(remaining_count), "Cells still not aligned with ground truth", "warn" if remaining_count else "good")}
+    <div class="diff-root">
+      <div class="diff-kpis">
+        {_kpi("Cells Fixed", str(fixed_count), "Edits matching ground truth", fc_tone)}
+        {_kpi("Regressions", str(regressed_count), "Edits away from ground truth", rc_tone)}
+        {_kpi("Remaining", str(remaining_count), "Still unaligned", rem_tone)}
       </div>
-      <div class='diff-grid'>
-        <div class='diff-panel'>
-          <p class='section-label' style='margin:0 0 8px'>Changed cells</p>
-          <table class='diff-table'>
-            <thead><tr><th>Status</th><th>Row</th><th>Column</th><th>Before</th><th>After</th><th>Target</th></tr></thead>
-            <tbody>{_rows_html(changed_rows, changed=True)}</tbody>
-          </table>
+      <div class="diff-tables">
+        <div class="diff-panel">
+          <div class="diff-panel-title">Changed Cells</div>
+          <div class="table-scroll">
+            <table class="dt">
+              <thead><tr><th>Status</th><th>Row</th><th>Column</th><th>Before</th><th>After</th><th>Target</th></tr></thead>
+              <tbody>{_rows(changed_rows, True)}</tbody>
+            </table>
+          </div>
         </div>
-        <div class='diff-panel'>
-          <p class='section-label' style='margin:0 0 8px'>Still broken</p>
-          <table class='diff-table'>
-            <thead><tr><th>Row</th><th>Column</th><th>Current</th><th>Target</th></tr></thead>
-            <tbody>{_rows_html(remaining_rows, changed=False)}</tbody>
-          </table>
+        <div class="diff-panel">
+          <div class="diff-panel-title">Still Broken</div>
+          <div class="table-scroll">
+            <table class="dt">
+              <thead><tr><th>Row</th><th>Column</th><th>Current</th><th>Target</th></tr></thead>
+              <tbody>{_rows(remaining_rows, False)}</tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
-    """
+    </div>"""
 
 
 def _benchmark_race_html() -> str:
     results = _read_eval_results()
     baseline = _read_baseline_results()
     training = _training_summary()
-
     lanes = [
-        ("Heuristic Surgeon", baseline.get("surgeon_advantage_accuracy_delta"), "Committed baseline over random."),
-        ("GRPO Checkpoint", results.get("surgeon_advantage_accuracy_delta"), "Current trained checkpoint over random."),
+        ("Heuristic Surgeon", baseline.get("surgeon_advantage_accuracy_delta"), "Committed baseline over random"),
+        ("GRPO Checkpoint",   results.get("surgeon_advantage_accuracy_delta"),  "Trained checkpoint over random"),
     ]
-    scale = max([abs(value) for _, value, _ in lanes if value is not None] + [0.01])
+    scale = max([abs(v) for _, v, _ in lanes if v is not None] + [0.01])
 
-    lane_html = []
+    html_lanes = []
     for label, value, detail in lanes:
         if value is None:
-            width = 18
-            value_text = "Pending"
-            tone = "neutral"
+            pct, vtxt, tone = 20, "Pending", "neutral"
         else:
-            width = 18 + abs(value) / scale * 82
-            value_text = _format_pp(value)
+            pct = 20 + abs(value) / scale * 80
+            vtxt = _format_pp(value)
             tone = "good" if value >= 0 else "bad"
-        lane_html.append(
-            "<div class='race-row'>"
-            f"<div class='race-label'>{_escape(label)}</div>"
-            "<div class='race-track'><span class='race-bar "
-            f"race-{tone}' style='width:{width:.1f}%'></span></div>"
-            f"<div class='race-value'>{_escape(value_text)}</div>"
-            f"<div class='race-detail'>{_escape(detail)}</div>"
-            "</div>"
-        )
+        html_lanes.append(f"""
+        <div class="race-lane">
+          <div class="race-meta">
+            <span class="race-name">{_escape(label)}</span>
+            <span class="race-val race-{tone}">{_escape(vtxt)}</span>
+          </div>
+          <div class="race-track"><span class="race-bar race-bar-{tone}" style="width:{pct:.1f}%"></span></div>
+          <div class="race-detail">{_escape(detail)}</div>
+        </div>""")
 
-    latest_reward = training["latest_reward"]
-    latest_reward_text = f"{latest_reward:+.2f}" if latest_reward is not None else "Pending"
-    invalid_text = (
-        f"{training['invalid_action_rate']:.1f}%"
-        if training["invalid_action_rate"] is not None
-        else "Pending"
-    )
+    lr = training["latest_reward"]
+    lr_txt = f"{lr:+.2f}" if lr is not None else "—"
+    ia_txt = f"{training['invalid_action_rate']:.1f}%" if training["invalid_action_rate"] is not None else "—"
     return f"""
-    <div class='metric-card telemetry-card'>
-      <div class='metric-label'>Benchmark race</div>
-      <div class='race-board'>{"".join(lane_html)}</div>
-      <div class='race-foot'>
-        <span>Latest reward {latest_reward_text}</span>
-        <span>Invalid actions {invalid_text}</span>
+    <div class="benchmark-root">
+      <div class="bench-header">Benchmark Race</div>
+      {''.join(html_lanes)}
+      <div class="bench-foot">
+        <span>Latest reward <strong>{lr_txt}</strong></span>
+        <span>·</span>
+        <span>Invalid actions <strong>{ia_txt}</strong></span>
       </div>
-    </div>
-    """
+    </div>"""
 
 
 def _architecture_html() -> str:
-    cards = [
-        ("Observe", "Schema, suspect rows, and recent actions are packed into a structured prompt."),
-        ("Act", "The surgeon emits one constrained JSON repair action at a time."),
-        ("Score", "Reward is grounded in accuracy delta, tool logic, efficiency, and anti-shortcut checks."),
-        ("Escalate", "The corruptor advances from simple nulls to harder relational failures."),
+    items = [
+        ("Observe", "↗", "Schema, suspect rows, and recent actions packed into a structured prompt."),
+        ("Act",     "⚡", "The surgeon emits one constrained JSON repair action per step."),
+        ("Score",   "◈", "Reward grounded in accuracy delta, tool logic, efficiency, anti-shortcut."),
+        ("Escalate","↑", "Corruptor advances from simple nulls to hard relational failures."),
     ]
-    rendered = []
-    for title, detail in cards:
-        rendered.append(
-            "<div class='arch-card'>"
-            f"<div class='metric-label'>{_escape(title)}</div>"
-            f"<div class='metric-detail'>{_escape(detail)}</div>"
-            "</div>"
-        )
-    return "<div class='arch-grid'>" + "".join(rendered) + "</div>"
-
-
-DARK_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap');
-:root {
-  --df-bg: #070914;
-  --df-panel: rgba(13, 18, 32, 0.86);
-  --df-panel-strong: rgba(16, 24, 39, 0.94);
-  --df-border: rgba(148, 163, 184, 0.18);
-  --df-muted: #94a3b8;
-  --df-text: #f8fafc;
-  --df-soft: #cbd5e1;
-  --df-good: #22c55e;
-  --df-warn: #f59e0b;
-  --df-bad: #fb7185;
-  --df-blue: #38bdf8;
-}
-body,
-.gradio-container {
-  background:
-    linear-gradient(135deg, rgba(56, 189, 248, 0.10) 0%, transparent 24%),
-    linear-gradient(225deg, rgba(34, 197, 94, 0.09) 0%, transparent 28%),
-    linear-gradient(180deg, #070914 0%, #0b1020 52%, #070914 100%) !important;
-  color: var(--df-text);
-  font-family: 'Inter', sans-serif;
-}
-.gradio-container { max-width: 1500px !important; }
-.hero-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.8fr);
-  gap: 20px;
-  align-items: stretch;
-  padding: 28px;
-  margin: 8px 0 18px;
-  border: 1px solid var(--df-border);
-  border-radius: 8px;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(8, 13, 28, 0.86));
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-.hero-copy h1 {
-  margin: 6px 0 8px;
-  color: var(--df-text);
-  font-family: 'JetBrains Mono', monospace !important;
-  font-size: 40px;
-  line-height: 1.04;
-  letter-spacing: 0;
-}
-.hero-copy p {
-  max-width: 820px;
-  margin: 0;
-  color: var(--df-soft);
-  font-size: 16px;
-  line-height: 1.65;
-}
-.eyebrow,
-.metric-label,
-.section-label {
-  color: var(--df-muted);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-.hero-steps {
-  display: grid;
-  gap: 10px;
-}
-.hero-steps div {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  column-gap: 12px;
-  align-items: center;
-  padding: 12px;
-  border: 1px solid var(--df-border);
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.66);
-}
-.hero-steps span {
-  grid-row: span 2;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(56, 189, 248, 0.20));
-  color: var(--df-text);
-  font: 700 13px 'JetBrains Mono', monospace;
-}
-.hero-steps strong {
-  color: var(--df-text);
-  font-size: 14px;
-}
-.hero-steps small {
-  color: var(--df-muted);
-  font-size: 12px;
-  line-height: 1.35;
-}
-.evidence-grid,
-.scenario-grid,
-.rollout-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
-}
-.scenario-grid,
-.rollout-metrics {
-  grid-template-columns: repeat(3, minmax(130px, 1fr));
-}
-.rollout-metrics {
-  grid-template-columns: repeat(4, minmax(130px, 1fr));
-}
-.panel {
-  background: linear-gradient(180deg, var(--df-panel) 0%, rgba(8, 13, 26, 0.92) 100%);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--df-border);
-  border-radius: 8px;
-  padding: 18px;
-  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-.metric-card {
-  background: linear-gradient(180deg, var(--df-panel-strong) 0%, rgba(8, 13, 26, 0.96) 100%);
-  border: 1px solid var(--df-border);
-  border-radius: 8px;
-  padding: 15px;
-  text-align: left;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 20px rgba(0,0,0,0.25);
-  word-break: break-word;
-  min-height: 96px;
-}
-.metric-card.metric-good { border-color: rgba(34, 197, 94, 0.34); }
-.metric-card.metric-warn { border-color: rgba(245, 158, 11, 0.34); }
-.metric-card.metric-bad { border-color: rgba(251, 113, 133, 0.38); }
-.metric-value {
-  margin-top: 7px;
-  color: var(--df-text);
-  font: 700 28px/1.05 'JetBrains Mono', monospace;
-}
-.metric-value.compact {
-  font-size: 18px;
-  line-height: 1.22;
-}
-.metric-detail {
-  margin-top: 8px;
-  color: var(--df-soft);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.telemetry-card { min-height: 0; margin-bottom: 12px; }
-.progress-shell {
-  margin-bottom: 12px;
-  padding: 14px;
-  border: 1px solid var(--df-border);
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.72);
-}
-.progress-copy {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: end;
-}
-.progress-value {
-  margin-top: 4px;
-  color: var(--df-text);
-  font: 700 20px/1.1 'JetBrains Mono', monospace;
-}
-.progress-detail {
-  color: var(--df-soft);
-  font-size: 12px;
-  text-align: right;
-}
-.progress-track {
-  margin-top: 10px;
-  width: 100%;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.14);
-  overflow: hidden;
-}
-.progress-track span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, rgba(34, 197, 94, 0.95), rgba(56, 189, 248, 0.95));
-}
-.rollout-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 11px 13px;
-  margin: 7px 0;
-  border-radius: 8px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-}
-.rollout-winner {
-  background: linear-gradient(90deg, rgba(34,197,94,0.18) 0%, rgba(56,189,248,0.08) 100%);
-  border-left: 3px solid var(--df-good);
-}
-.rollout-loser  {
-  background: rgba(251,113,133,0.12);
-  border-left: 3px solid var(--df-bad);
-}
-.tag {
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  font-family: 'JetBrains Mono', monospace;
-  white-space: nowrap;
-}
-.tag-null   { background: rgba(251, 113, 133, 0.15); color:#fecdd3; border: 1px solid rgba(251, 113, 133, 0.35); }
-.tag-type   { background: rgba(245, 158, 11, 0.15); color:#fde68a; border: 1px solid rgba(245, 158, 11, 0.35); }
-.tag-fixed  { background: rgba(34, 197, 94, 0.16); color:#bbf7d0; border: 1px solid rgba(34, 197, 94, 0.35); }
-.tag-dup    { background: rgba(56, 189, 248, 0.16); color:#bae6fd; border: 1px solid rgba(56, 189, 248, 0.35); }
-.diff-shell {
-  margin-top: 12px;
-  padding: 14px;
-  border: 1px solid var(--df-border);
-  border-radius: 8px;
-  background: rgba(8, 13, 26, 0.82);
-}
-.diff-stats,
-.diff-grid,
-.arch-grid {
-  display: grid;
-  gap: 12px;
-}
-.diff-stats {
-  grid-template-columns: repeat(3, minmax(120px, 1fr));
-  margin-bottom: 12px;
-}
-.diff-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.diff-panel,
-.arch-card {
-  padding: 14px;
-  border: 1px solid var(--df-border);
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.6);
-}
-.diff-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-.diff-table th,
-.diff-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.10);
-  text-align: left;
-  vertical-align: top;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--df-soft);
-  word-break: break-word;
-}
-.diff-table th {
-  color: var(--df-muted);
-  text-transform: uppercase;
-}
-.empty-cell {
-  color: var(--df-muted) !important;
-}
-.pill {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 10px;
-  font-weight: 700;
-}
-.pill-fixed {
-  background: rgba(34, 197, 94, 0.16);
-  color: #bbf7d0;
-}
-.pill-regressed {
-  background: rgba(251, 113, 133, 0.16);
-  color: #fecdd3;
-}
-.pill-shifted {
-  background: rgba(56, 189, 248, 0.16);
-  color: #bae6fd;
-}
-.null-token {
-  color: #fde68a;
-  font-weight: 700;
-}
-.race-board {
-  display: grid;
-  gap: 12px;
-  margin-top: 10px;
-}
-.race-row {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) 86px;
-  gap: 10px;
-  align-items: center;
-}
-.race-label,
-.race-value {
-  color: var(--df-text);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  font-weight: 700;
-}
-.race-value {
-  text-align: right;
-}
-.race-track {
-  height: 12px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.14);
-  overflow: hidden;
-}
-.race-bar {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-}
-.race-good {
-  background: linear-gradient(90deg, rgba(34, 197, 94, 0.95), rgba(56, 189, 248, 0.95));
-}
-.race-bad {
-  background: linear-gradient(90deg, rgba(251, 113, 133, 0.95), rgba(245, 158, 11, 0.95));
-}
-.race-neutral {
-  background: linear-gradient(90deg, rgba(148, 163, 184, 0.85), rgba(203, 213, 225, 0.75));
-}
-.race-detail {
-  grid-column: 2 / 4;
-  color: var(--df-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-.race-foot {
-  margin-top: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  color: var(--df-soft);
-  font-size: 12px;
-}
-.arch-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-.gradio-container button.primary,
-.gradio-container button[variant='primary'] {
-  background: linear-gradient(135deg, #16a34a 0%, #0284c7 100%) !important;
-  border: 0 !important;
-  color: white !important;
-}
-.gradio-container table {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-}
-@media (max-width: 980px) {
-  .hero-shell { grid-template-columns: 1fr; padding: 20px; }
-  .hero-copy h1 { font-size: 32px; }
-  .evidence-grid,
-  .scenario-grid,
-  .rollout-metrics,
-  .diff-grid,
-  .diff-stats,
-  .arch-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
-  .race-row { grid-template-columns: 1fr; }
-  .race-value { text-align: left; }
-  .race-detail { grid-column: auto; }
-}
-@media (max-width: 640px) {
-  .hero-copy h1 { font-size: 28px; }
-  .evidence-grid,
-  .scenario-grid,
-  .rollout-metrics,
-  .diff-grid,
-  .diff-stats,
-  .arch-grid { grid-template-columns: 1fr; }
-  .panel { padding: 14px; }
-  .progress-copy { flex-direction: column; align-items: start; }
-}
-
-@keyframes pulse-border {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.25), inset 0 1px 0 rgba(255,255,255,0.05); }
-  50% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.06), inset 0 1px 0 rgba(255,255,255,0.05); }
-}
-@keyframes slide-in-up {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes glow-bar {
-  0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.3); }
-}
-.metric-card.metric-good { animation: pulse-border 3.2s ease-in-out infinite; }
-.rollout-row { animation: slide-in-up 0.22s ease both; }
-.reward-dna-shell {
-  margin-top: 14px;
-  padding: 14px 16px;
-  border: 1px solid var(--df-border);
-  border-radius: 8px;
-  background: rgba(7, 9, 20, 0.72);
-}
-.reward-dna-title {
-  color: var(--df-muted);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
-  margin-bottom: 10px;
-}
-.reward-dna-row {
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) 52px;
-  align-items: center;
-  gap: 8px;
-  margin: 5px 0;
-}
-.reward-dna-label {
-  color: var(--df-soft);
-  font-size: 11px;
-  font-family: 'JetBrains Mono', monospace;
-}
-.reward-dna-track {
-  height: 7px;
-  border-radius: 999px;
-  background: rgba(148,163,184,0.12);
-  overflow: hidden;
-}
-.reward-dna-bar {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  animation: glow-bar 2.4s ease-in-out infinite;
-}
-.reward-dna-bar-pos { background: linear-gradient(90deg, rgba(34,197,94,.9), rgba(56,189,248,.8)); }
-.reward-dna-bar-neg { background: linear-gradient(90deg, rgba(251,113,133,.9), rgba(245,158,11,.7)); }
-.reward-dna-val {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  text-align: right;
-  font-weight: 700;
-}
-.reward-dna-val-pos { color: var(--df-good); }
-.reward-dna-val-neg { color: var(--df-bad); }
-.tier-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  font-weight: 700;
-  border: 1px solid rgba(245,158,11,0.4);
-  background: rgba(245,158,11,0.12);
-  color: #fde68a;
-}
-.live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--df-good);
-  animation: pulse-border 1.8s ease-in-out infinite;
-  display: inline-block;
-}
-"""
+    cards = []
+    for title, icon, desc in items:
+        cards.append(f"""
+        <div class="arch-card">
+          <div class="arch-icon">{icon}</div>
+          <div class="arch-title">{_escape(title)}</div>
+          <div class="arch-desc">{_escape(desc)}</div>
+        </div>""")
+    return f"<div class='arch-grid'>{''.join(cards)}</div>"
 
 
 def _reward_dna_html(components: dict) -> str:
     if not components:
         return ""
-
     labels = {
-        "accuracy_delta": "Accuracy Δ",
+        "accuracy_delta":     "Accuracy Δ",
         "constraint_alignment": "Constraint",
-        "schema_alignment": "Schema",
-        "outlier_targeting": "Outlier",
-        "reasoning_quality": "Reasoning",
-        "parse_bonus": "Parse",
-        "anti_hack": "Anti-Hack",
+        "schema_alignment":   "Schema",
+        "outlier_targeting":  "Outlier",
+        "reasoning_quality":  "Reasoning",
+        "parse_bonus":        "Parse",
+        "anti_hack":          "Anti-Hack",
     }
-    numeric_values = [abs(float(value)) for value in components.values() if isinstance(value, (int, float))]
-    scale = max(numeric_values, default=1.0) or 1.0
+    scale = max([abs(float(v)) for v in components.values() if isinstance(v, (int, float))] + [0.01])
     rows = []
     for key, label in labels.items():
-        value = float(components.get(key, 0.0))
-        pct = min(100.0, abs(value) / scale * 100.0)
-        bar_cls = "reward-dna-bar-pos" if value >= 0 else "reward-dna-bar-neg"
-        val_cls = "reward-dna-val-pos" if value >= 0 else "reward-dna-val-neg"
-        rows.append(
-            f"<div class='reward-dna-row'>"
-            f"<div class='reward-dna-label'>{_escape(label)}</div>"
-            f"<div class='reward-dna-track'><span class='reward-dna-bar {bar_cls}' style='width:{pct:.1f}%'></span></div>"
-            f"<div class='reward-dna-val {val_cls}'>{value:+.2f}</div>"
-            f"</div>"
-        )
-    return (
-        "<div class='reward-dna-shell'>"
-        "<div class='reward-dna-title'>Reward DNA - last step</div>"
-        + "".join(rows)
-        + "</div>"
-    )
+        val = float(components.get(key, 0.0))
+        pct = min(100.0, abs(val) / scale * 100.0)
+        pos = val >= 0
+        rows.append(f"""
+        <div class="dna-row">
+          <div class="dna-label">{_escape(label)}</div>
+          <div class="dna-track"><span class="dna-bar {'dna-pos' if pos else 'dna-neg'}" style="width:{pct:.1f}%"></span></div>
+          <div class="dna-val {'dna-val-pos' if pos else 'dna-val-neg'}">{val:+.2f}</div>
+        </div>""")
+    return f"""
+    <div class="reward-dna">
+      <div class="dna-header">Reward DNA — Last Step</div>
+      {''.join(rows)}
+    </div>"""
 
 
 def _tier_badge_html(tier: int) -> str:
-    labels = {
-        1: "Tier 1 - Simple Nulls",
-        2: "Tier 2 - Cluster Corruption",
-        3: "Tier 3 - Relational Failures",
-    }
-    return (
-        "<span class='tier-badge'><span class='live-dot'></span>"
-        f"{_escape(labels.get(tier, f'Tier {tier}'))}</span>"
-    )
+    labels = {1: "Tier 1 · Simple Nulls", 2: "Tier 2 · Cluster Corruption", 3: "Tier 3 · Relational Failures"}
+    colors = {1: "var(--g)", 2: "var(--a)", 3: "var(--r)"}
+    col = colors.get(tier, "var(--t2)")
+    label = labels.get(tier, f"Tier {tier}")
+    return f"""
+    <div class="tier-badge" style="color:{col}; border-color:{col}33;">
+      <span class="tier-dot" style="background:{col};"></span>
+      {_escape(label)}
+    </div>"""
 
 
 def get_training_data():
@@ -1133,16 +632,18 @@ def get_training_data():
     return pd.DataFrame({"step": [0], "total_reward": [0], "difficulty": [1]})
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  CORE LOGIC
+# ─────────────────────────────────────────────────────────────────────────────
+
 def generate_episode(tier, session_state):
     session_state = dict(session_state or _new_session_state())
     tier = int(tier)
-
     local_corruptor = Corruptor()
     local_corruptor.force_tier(tier)
     sample = clean_data.sample(n=min(50, len(clean_data))).reset_index(drop=True)
     dirty, gt, meta = local_corruptor.generate_episode(sample)
     gt = _align_duplicate_ground_truth(dirty, gt, meta)
-
     session_state.update({"dirty": dirty.copy(), "gt": gt.copy(), "meta": meta, "tier": tier})
 
     display_cols = [c for c in dirty.columns if c != "_is_deleted"]
@@ -1150,165 +651,133 @@ def generate_episode(tier, session_state):
     _, total_errors = summarize_corruption(dirty[display_cols], HEALTHCARE_SCHEMA)
     acc_before = rc._field_accuracy(dirty, gt)
 
+    tool_short = meta.get("tool", "unknown")
     stats_html = f"""
-    <div class='scenario-grid'>
-      {_metric_card("Dataset health", f"{acc_before:.1%}", "Before agent repair", "warn" if acc_before < 0.95 else "good")}
-      {_metric_card("Visible issues", str(total_errors), "Schema-level corruption signals", "bad" if total_errors else "good")}
-      {_metric_card("Corruption type", meta.get("tool", "unknown"), "Adversarial episode generator", "warn")}
+    <div class="scenario-kpis">
+      {_kpi("Dataset Health", f"{acc_before:.1%}", "Before repair", "warn" if acc_before < 0.95 else "good")}
+      {_kpi("Visible Issues", str(total_errors), "Schema-level signals", "bad" if total_errors else "good")}
+      {_kpi("Corruption Type", tool_short, "Adversarial generator", "warn")}
     </div>
-    <div style='margin-top:10px'>{_tier_badge_html(tier)}</div>
+    {_tier_badge_html(tier)}
     """
     return display, stats_html, session_state
 
 
 def heuristic_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame) -> SurgeonAction:
     display_cols = [c for c in state.columns if c != "_is_deleted"]
-
-    for row_idx in range(min(len(state), len(gt))):
-        for col_idx, col_name in enumerate(display_cols):
-            cell = state.at[row_idx, col_name]
-            gt_cell = gt.at[row_idx, col_name]
-
+    for ri in range(min(len(state), len(gt))):
+        for ci, col in enumerate(display_cols):
+            cell = state.at[ri, col]
+            gt_cell = gt.at[ri, col]
             if pd.isna(cell) and pd.notna(gt_cell):
-                col_type = HEALTHCARE_SCHEMA.get(col_name, {}).get("type", "str")
+                col_type = HEALTHCARE_SCHEMA.get(col, {}).get("type", "str")
                 tool_id = 0 if col_type in ("int", "float") else 1
-                reason = (
-                    f"Null in numeric column '{col_name}' - IMPUTE_MEDIAN"
-                    if tool_id == 0
-                    else f"Missing value in '{col_name}' - IMPUTE_MODE"
-                )
-                return SurgeonAction(reasoning=reason, tool_id=tool_id, column=col_idx, row_id=row_idx)
-
+                reason = (f"Null in numeric '{col}' — IMPUTE_MEDIAN" if tool_id == 0
+                           else f"Missing value in '{col}' — IMPUTE_MODE")
+                return SurgeonAction(reasoning=reason, tool_id=tool_id, column=ci, row_id=ri)
             if pd.notna(cell) and pd.notna(gt_cell) and str(cell) != str(gt_cell):
                 if str(cell).startswith("ERR_"):
-                    col_type = HEALTHCARE_SCHEMA.get(col_name, {}).get("type", "str")
+                    col_type = HEALTHCARE_SCHEMA.get(col, {}).get("type", "str")
                     tool_id = 0 if col_type in ("int", "float") else 1
-                    return SurgeonAction(
-                        reasoning=f"Type error '{cell}' in '{col_name}'",
-                        tool_id=tool_id,
-                        column=col_idx,
-                        row_id=row_idx,
-                    )
-                return SurgeonAction(
-                    reasoning=f"Format or consistency error in '{col_name}'",
-                    tool_id=3,
-                    column=col_idx,
-                    row_id=row_idx,
-                )
-
+                    return SurgeonAction(reasoning=f"Type error '{cell}' in '{col}'", tool_id=tool_id, column=ci, row_id=ri)
+                return SurgeonAction(reasoning=f"Format/consistency error in '{col}'", tool_id=3, column=ci, row_id=ri)
     if len(state) > len(gt):
-        return SurgeonAction(
-            reasoning="duplicate row detected - DELETE_ROW",
-            tool_id=4,
-            column=0,
-            row_id=len(state) - 1,
-        )
-
-    return SurgeonAction(reasoning="no errors detected", tool_id=7, column=0, row_id=0)
+        return SurgeonAction(reasoning="Duplicate row detected — DELETE_ROW", tool_id=4, column=0, row_id=len(state) - 1)
+    return SurgeonAction(reasoning="No errors detected", tool_id=7, column=0, row_id=0)
 
 
 def render_ui_state(rollouts, original_state, current_state, gt, acc_before, agent_type,
                     total_steps: int = 5, pending_step: int | None = None):
     acc_after = rc._field_accuracy(current_state, gt)
-    success_rate_improvement = (
-        ((acc_after - acc_before) / (1.0 - acc_before)) * 100 if acc_before < 1.0 else 0
-    )
-    accuracy_delta = acc_after - acc_before
-    total_reward = sum(rollout.get("reward", 0) for rollout in rollouts)
+    delta = acc_after - acc_before
+    recovery = ((acc_after - acc_before) / (1.0 - acc_before)) * 100 if acc_before < 1.0 else 0
+    total_reward = sum(r.get("reward", 0) for r in rollouts)
     provenance_title, provenance_body = _agent_provenance(agent_type)
     diff_html = _diff_summary_html(original_state, current_state, gt)
 
-    # Build causal reasoning display from last rollout
-    last_reasoning = ""
-    last_violation = ""
-    last_tool = ""
+    last_reasoning = last_violation = last_tool = ""
     if rollouts:
         last = rollouts[-1]
         last_reasoning = last.get("reasoning", "")
         last_violation = last.get("violation_type", "")
         last_tool = last.get("tool_name", "")
 
+    violation_colors = {
+        "null_numeric": "#ff4d6a", "null_categorical": "#ff4d6a",
+        "range": "#ffb020", "type_error": "#ffb020", "enum_violation": "#3b9eff",
+        "fk_mismatch": "#ff4d6a", "semantic_temporal_drift": "#ffb020",
+        "currency_unit_mismatch": "#ffb020", "clean": "#00e87a",
+    }
+    vc = violation_colors.get(last_violation, "rgba(255,255,255,0.5)")
+
     causal_html = ""
     if last_reasoning:
-        violation_color = {
-            "null_numeric": "#fecdd3",
-            "null_categorical": "#fecdd3",
-            "range": "#fde68a",
-            "type_error": "#fde68a",
-            "enum_violation": "#bae6fd",
-            "fk_mismatch": "#fecdd3",
-            "semantic_temporal_drift": "#fde68a",
-            "currency_unit_mismatch": "#fde68a",
-            "clean": "#bbf7d0",
-        }.get(last_violation, "#cbd5e1")
         causal_html = f"""
-        <div class='reward-dna-shell' style='margin-bottom:12px; border-color: rgba(56,189,248,0.3);'>
-          <div class='reward-dna-title'>🧠 Agent Causal Reasoning — Last Action</div>
-          <div style='font-family: JetBrains Mono, monospace; font-size:13px; color:#f8fafc; padding: 8px 0; font-weight:600;'>
-            "{_escape(last_reasoning)}"
+        <div class="causal-block">
+          <div class="causal-header">Agent Reasoning — Last Action</div>
+          <div class="causal-quote">"{_escape(last_reasoning)}"</div>
+          <div class="causal-tags">
+            <span class="ctag ctag-dim">Violation</span>
+            <span class="ctag" style="color:{vc}; border-color:{vc}33;">{_escape(last_violation) if last_violation else "none"}</span>
+            <span class="ctag ctag-dim" style="margin-left:8px;">Tool</span>
+            <span class="ctag ctag-green">{_escape(last_tool)}</span>
           </div>
-          <div style='display:flex; gap:10px; margin-top:6px; flex-wrap:wrap;'>
-            <span style='font-size:11px; color:#94a3b8;'>Violation detected:</span>
-            <span style='font-size:11px; font-weight:700; color:{violation_color}; font-family: JetBrains Mono, monospace;'>{_escape(last_violation) if last_violation else "none"}</span>
-            <span style='font-size:11px; color:#94a3b8; margin-left:10px;'>Tool applied:</span>
-            <span style='font-size:11px; font-weight:700; color:#bbf7d0; font-family: JetBrains Mono, monospace;'>{_escape(last_tool)}</span>
-          </div>
-        </div>
-        """
-
-    rollout_html = f"""
-    <div style='font-family: JetBrains Mono, monospace;'>
-      {causal_html}
-      {_progress_html(len(rollouts), total_steps, pending_step=pending_step)}
-      <div class='metric-card telemetry-card'>
-        <div class='metric-label'>Execution path</div>
-        <div class='metric-value compact'>{_escape(provenance_title)}</div>
-        <div class='metric-detail'>{_escape(provenance_body)}</div>
-      </div>
-      <div class='rollout-metrics'>
-        {_metric_card("Accuracy before", f"{acc_before:.1%}", "Initial field-level health", "bad")}
-        {_metric_card("Accuracy after", f"{acc_after:.1%}", "Current repaired state", "good" if acc_after >= acc_before else "bad")}
-        {_metric_card("Accuracy delta", f"{accuracy_delta * 100:+.2f} pp", f"Recovered share: {success_rate_improvement:+.1f}%", "good" if accuracy_delta >= 0 else "bad")}
-        {_metric_card("Tool calls", str(len(rollouts)), f"Cumulative reward {total_reward:+.2f}", "neutral")}
-      </div>
-      <p class='section-label' style='margin:0 0 8px'>Trajectory log</p>
-    """
-
-    for idx, rollout in enumerate(rollouts):
-        css = "rollout-winner" if rollout.get("reward", 0) >= 0 else "rollout-loser"
-        reasoning_text = str(rollout.get("reasoning", ""))
-        if len(reasoning_text) > 55:
-            reasoning_text = reasoning_text[:55] + "..."
-        reasoning_text = _escape(reasoning_text)
-        tool_name = _escape(rollout.get("tool_name", "?"))
-        target_hint = rollout.get("target_cell_hint", "")
-        location = _escape(f"r{rollout.get('row_id', '?')} / {rollout.get('column_name', '?')}")
-        hint_display = f" → {target_hint[:60]}" if target_hint else ""
-        location = _escape(f"r{rollout.get('row_id', '?')} / {rollout.get('column_name', '?')}{hint_display}")
-        components = rollout.get("components", {})
-        breakdown_parts = []
-        if components:
-            breakdown_parts.append(f"acc {components.get('accuracy_delta', 0.0):+.2f}")
-            breakdown_parts.append(f"eff {components.get('efficiency', 0.0):+.2f}")
-        breakdown = _escape(" | ".join(breakdown_parts)) if breakdown_parts else ""
-
-        rollout_html += f"""
-        <div class='rollout-row {css}'>
-          <div style='color:#94a3b8; font-weight:700;'>STEP {idx + 1:02d}</div>
-          <div style='color:#cbd5e1; flex:1; min-width:180px; font-style:italic;'>{reasoning_text}</div>
-          <div class='tag tag-{"null" if rollout.get("is_baseline") else "fixed"}'>{tool_name}</div>
-          {'<div class="tag tag-type">' + _escape(rollout.get("violation_type","")) + '</div>' if rollout.get("violation_type") else ''}
-          <div style='color:#94a3b8; white-space:nowrap;'>{location}</div>
-          <div style='color:#94a3b8; white-space:nowrap;'>{breakdown}</div>
-          <div style='color:#fde68a; font-weight:600; white-space:nowrap;'>Reward={rollout.get("reward", 0):+.2f}</div>
         </div>"""
 
-    if rollouts:
-        rollout_html += _reward_dna_html(rollouts[-1].get("components", {}))
+    # Build trajectory rows
+    traj_rows = ""
+    for idx, rollout in enumerate(rollouts):
+        rew = rollout.get("reward", 0)
+        is_win = rew >= 0
+        reasoning = str(rollout.get("reasoning", ""))
+        if len(reasoning) > 60:
+            reasoning = reasoning[:60] + "…"
+        tool_name = rollout.get("tool_name", "?")
+        row_id = rollout.get("row_id", "?")
+        col_name = rollout.get("column_name", "?")
+        hint = rollout.get("target_cell_hint", "")
+        loc = f"r{row_id} / {col_name}" + (f" → {hint[:40]}" if hint else "")
+        comps = rollout.get("components", {})
+        acc_c = comps.get("accuracy_delta", 0.0)
+        eff_c = comps.get("efficiency", 0.0)
+        vtype = rollout.get("violation_type", "")
 
-    rollout_html += "</div>"
+        traj_rows += f"""
+        <div class="traj-row {'traj-win' if is_win else 'traj-loss'}">
+          <div class="traj-step">{'✓' if is_win else '✕'} {idx+1:02d}</div>
+          <div class="traj-reasoning">{_escape(reasoning)}</div>
+          <div class="traj-tags">
+            <span class="ttag">{_escape(tool_name)}</span>
+            {f'<span class="ttag ttag-viol">{_escape(vtype)}</span>' if vtype else ''}
+          </div>
+          <div class="traj-loc mono">{_escape(loc)}</div>
+          <div class="traj-reward {'rew-pos' if is_win else 'rew-neg'}">{rew:+.2f}</div>
+        </div>"""
+
+    rollout_html = f"""
+    <div class="rollout-root">
+      {causal_html}
+      {_progress_html(len(rollouts), total_steps, pending_step)}
+      <div class="agent-pill">
+        <span class="agent-pill-dot"></span>
+        <span class="agent-pill-name">{_escape(provenance_title)}</span>
+        <span class="agent-pill-desc">{_escape(provenance_body)}</span>
+      </div>
+      <div class="rollout-kpis">
+        {_kpi("Before", f"{acc_before:.1%}", "Initial accuracy", "neutral")}
+        {_kpi("After",  f"{acc_after:.1%}",  "Repaired accuracy", "good" if acc_after >= acc_before else "bad")}
+        {_kpi("Delta",  f"{delta*100:+.2f} pp", f"Recovery {recovery:+.1f}%", "good" if delta >= 0 else "bad")}
+        {_kpi("Reward", f"{total_reward:+.2f}", f"{len(rollouts)} tool calls", "good" if total_reward >= 0 else "bad")}
+      </div>
+      <div class="traj-header">Trajectory Log</div>
+      <div class="traj-list">
+        {traj_rows if traj_rows else '<div class="empty-traj">No steps yet.</div>'}
+      </div>
+      {_reward_dna_html(rollouts[-1].get("components", {})) if rollouts else ''}
+    </div>"""
+
     repaired_display = current_state[[c for c in current_state.columns if c != "_is_deleted"]].head(8).copy()
-    before_html = _score_card("Before", acc_before, "bad")
+    before_html = _score_card("Before", acc_before, "neutral")
     after_html = _score_card("After", acc_after, "good" if acc_after >= acc_before else "bad")
     return rollout_html, repaired_display, before_html, after_html, diff_html
 
@@ -1316,14 +785,8 @@ def render_ui_state(rollouts, original_state, current_state, gt, acc_before, age
 def simulate_agent(agent_type, session_state):
     session_state = dict(session_state or _new_session_state())
     if session_state.get("dirty") is None:
-        yield (
-            _empty_state_html(),
-            None,
-            _score_card("Before", None),
-            _score_card("After", None),
-            _diff_summary_html(None, None, None),
-            session_state,
-        )
+        yield (_empty_state_html(), None, _score_card("Before", None), _score_card("After", None),
+               _diff_summary_html(None, None, None), session_state)
         return
 
     dirty = session_state["dirty"].copy()
@@ -1335,197 +798,788 @@ def simulate_agent(agent_type, session_state):
     max_rollout_steps = 5
 
     for step_idx in range(max_rollout_steps):
-        yield (
-            *render_ui_state(
-                rollouts,
-                dirty,
-                env._state,
-                gt,
-                acc_before,
-                agent_type,
-                total_steps=max_rollout_steps,
-                pending_step=step_idx + 1,
-            ),
-            session_state,
-        )
+        yield (*render_ui_state(rollouts, dirty, env._state, gt, acc_before, agent_type,
+                                total_steps=max_rollout_steps, pending_step=step_idx + 1), session_state)
+
         if agent_type == "Naive Baseline":
-            target_row = None
-            target_col = None
+            target_row = target_col = None
             action_tool = 7
             action_reason = "No errors found."
-
-            for row_idx in range(len(env._state)):
-                for col_idx, col_name in enumerate(display_cols):
-                    cell = env._state.at[row_idx, col_name]
+            for ri in range(len(env._state)):
+                for ci, col in enumerate(display_cols):
+                    cell = env._state.at[ri, col]
                     if pd.isna(cell):
-                        target_row, target_col = row_idx, col_idx
-                        action_tool = 0
-                        action_reason = "Naive baseline: null found. Imputing median."
+                        target_row, target_col, action_tool = ri, ci, 0
+                        action_reason = "Naive baseline: null → IMPUTE_MEDIAN"
                         break
                     if str(cell).startswith("ERR_"):
-                        target_row, target_col = row_idx, col_idx
-                        action_tool = 0
-                        action_reason = "Naive baseline: type error found. Imputing median."
+                        target_row, target_col, action_tool = ri, ci, 0
+                        action_reason = "Naive baseline: type error → IMPUTE_MEDIAN"
                         break
                 if target_row is not None:
                     break
+            action = SurgeonAction(reasoning=action_reason, tool_id=action_tool,
+                                   column=target_col if target_col is not None else 0,
+                                   row_id=target_row if target_row is not None else 0)
 
-            action = SurgeonAction(
-                reasoning=action_reason,
-                tool_id=action_tool,
-                column=target_col if target_col is not None else 0,
-                row_id=target_row if target_row is not None else 0,
-            )
         elif agent_type == "Heuristic Surgeon":
             action = heuristic_surgeon_agent(env._state.copy(), gt)
+
         else:
             success, message = load_llm()
             if not success:
-                yield (
-                    _unavailable_html(message),
-                    None,
-                    _score_card("Before", acc_before, "bad"),
-                    _score_card("After", None),
-                    _diff_summary_html(dirty, env._state, gt),
-                    session_state,
-                )
+                yield (_unavailable_html(message), None,
+                       _score_card("Before", acc_before, "neutral"), _score_card("After", None),
+                       _diff_summary_html(dirty, env._state, gt), session_state)
                 return
-
             obs = env._make_observation()
             prompt = build_prompt(obs)
             messages = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": f"Observation: {obs.model_dump_json()}\nOutput valid JSON only."},
             ]
-
             try:
                 outputs = _run_llm(messages)
                 generated_text = outputs[0]["generated_text"][-1]["content"]
                 action = robust_parse_action(generated_text, require_fields=True)
             except Exception as exc:
                 logger.exception("LLM inference failed")
-                action = SurgeonAction(
-                    reasoning=f"LLM parse failure: {str(exc)[:40]}",
-                    tool_id=7,
-                    column=0,
-                    row_id=0,
-                )
+                action = SurgeonAction(reasoning=f"LLM parse failure: {str(exc)[:40]}", tool_id=7, column=0, row_id=0)
 
         _, total_reward, done, info = env.step(action)
         obs_after = env._make_observation()
-        rollouts.append(
-            {
-                "reasoning": action.reasoning.replace("EXACT_PARSE: ", ""),
-                "tool_name": SURGEON_TOOLS.get(action.tool_id, {"name": "UNKNOWN"})["name"],
-                "reward": total_reward,
-                "selected": True,
-                "is_baseline": agent_type == "Naive Baseline",
-                "row_id": action.row_id,
-                "column_name": display_cols[action.column] if action.column < len(display_cols) else "?",
-                "components": info.get("reward_components", {}),
-                "violation_type": getattr(obs_after, "violation_type", ""),
-                "target_cell_hint": getattr(obs_after, "target_cell_hint", ""),
-            }
-        )
+        rollouts.append({
+            "reasoning":        action.reasoning.replace("EXACT_PARSE: ", ""),
+            "tool_name":        SURGEON_TOOLS.get(action.tool_id, {"name": "UNKNOWN"})["name"],
+            "reward":           total_reward,
+            "selected":         True,
+            "is_baseline":      agent_type == "Naive Baseline",
+            "row_id":           action.row_id,
+            "column_name":      display_cols[action.column] if action.column < len(display_cols) else "?",
+            "components":       info.get("reward_components", {}),
+            "violation_type":   getattr(obs_after, "violation_type", ""),
+            "target_cell_hint": getattr(obs_after, "target_cell_hint", ""),
+        })
 
-        yield (
-            *render_ui_state(
-                rollouts,
-                dirty,
-                env._state,
-                gt,
-                acc_before,
-                agent_type,
-                total_steps=max_rollout_steps,
-            ),
-            session_state,
-        )
+        yield (*render_ui_state(rollouts, dirty, env._state, gt, acc_before, agent_type,
+                                total_steps=max_rollout_steps), session_state)
         if done:
             break
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PREMIUM CSS — OBSIDIAN TERMINAL
+# ─────────────────────────────────────────────────────────────────────────────
+
+PREMIUM_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap');
+
+:root {
+  /* Palette */
+  --bg:        #030508;
+  --s1:        rgba(255,255,255,0.025);
+  --s2:        rgba(255,255,255,0.055);
+  --s3:        rgba(255,255,255,0.09);
+  --border:    rgba(255,255,255,0.07);
+  --border-hi: rgba(255,255,255,0.13);
+
+  --t1:  #ffffff;
+  --t2:  rgba(255,255,255,0.55);
+  --t3:  rgba(255,255,255,0.30);
+
+  --g:        #00e87a;
+  --g-dim:    rgba(0,232,122,0.08);
+  --g-border: rgba(0,232,122,0.22);
+
+  --b:        #3b9eff;
+  --b-dim:    rgba(59,158,255,0.08);
+  --b-border: rgba(59,158,255,0.22);
+
+  --r:        #ff4d6a;
+  --r-dim:    rgba(255,77,106,0.08);
+  --r-border: rgba(255,77,106,0.22);
+
+  --a:        #ffb020;
+  --a-dim:    rgba(255,176,32,0.08);
+  --a-border: rgba(255,176,32,0.22);
+
+  --mono:   'DM Mono', monospace;
+  --sans:   'DM Sans', sans-serif;
+  --display:'Syne', sans-serif;
+
+  --r4:  4px;
+  --r8:  8px;
+  --r12: 12px;
+  --r16: 16px;
+}
+
+/* ── Reset & Base ───────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body, .gradio-container {
+  background: var(--bg) !important;
+  color: var(--t1);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.gradio-container { max-width: 1600px !important; padding: 0 24px 40px !important; }
+
+/* ── Gradio overrides ──────────────────────────────────────── */
+.gradio-container .panel, .gradio-container .block,
+.gradio-container .wrap, .gradio-container fieldset,
+.gradio-container .form { background: transparent !important; border: none !important; box-shadow: none !important; }
+.gradio-container .gap { gap: 16px !important; }
+.gradio-container label { color: var(--t2) !important; font-family: var(--sans) !important; font-size: 11px !important; letter-spacing: .05em; text-transform: uppercase; }
+.gradio-container input, .gradio-container select, .gradio-container textarea { background: var(--s2) !important; border: 1px solid var(--border) !important; color: var(--t1) !important; border-radius: var(--r8) !important; }
+
+/* Buttons */
+.gradio-container button {
+  font-family: var(--mono) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  border-radius: var(--r8) !important;
+  transition: all .18s ease !important;
+  letter-spacing: .04em;
+}
+.gradio-container button.primary, .gradio-container button[variant='primary'] {
+  background: linear-gradient(135deg, #00c96a 0%, #0070f3 100%) !important;
+  border: 0 !important;
+  color: #fff !important;
+  box-shadow: 0 0 28px rgba(0,232,122,0.25), 0 4px 16px rgba(0,0,0,0.4) !important;
+  padding: 14px 24px !important;
+  font-size: 13px !important;
+  letter-spacing: .08em !important;
+  text-transform: uppercase;
+}
+.gradio-container button.primary:hover, .gradio-container button[variant='primary']:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 0 40px rgba(0,232,122,0.35), 0 8px 24px rgba(0,0,0,0.5) !important;
+}
+.gradio-container button.secondary, .gradio-container button[variant='secondary'] {
+  background: var(--s2) !important;
+  border: 1px solid var(--border-hi) !important;
+  color: var(--t1) !important;
+  padding: 12px 20px !important;
+}
+.gradio-container button.secondary:hover { background: var(--s3) !important; border-color: var(--g-border) !important; }
+
+/* Radio */
+.gradio-container .radio-group { gap: 8px !important; }
+.gradio-container .radio-group label {
+  background: var(--s1) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--r8) !important;
+  padding: 10px 16px !important;
+  color: var(--t2) !important;
+  font-size: 12px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  cursor: pointer;
+  transition: all .15s;
+}
+.gradio-container .radio-group label:has(input:checked) {
+  background: var(--g-dim) !important;
+  border-color: var(--g-border) !important;
+  color: var(--g) !important;
+}
+
+/* Dataframe */
+.gradio-container table, .gradio-container .table-wrap {
+  font-family: var(--mono) !important;
+  font-size: 12px !important;
+  background: transparent !important;
+}
+.gradio-container th {
+  background: var(--s2) !important;
+  color: var(--t3) !important;
+  font-size: 10px !important;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 10px 12px !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+.gradio-container td {
+  color: var(--t2) !important;
+  padding: 9px 12px !important;
+  border-bottom: 1px solid rgba(255,255,255,0.04) !important;
+}
+.gradio-container tr:hover td { background: var(--s1) !important; }
+
+/* LinePlot */
+.gradio-container .plot-container { background: var(--s1) !important; border-radius: var(--r12) !important; border: 1px solid var(--border) !important; }
+
+/* ── Section panels ─────────────────────────────────────────── */
+.df-panel {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r16);
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+.df-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 60%);
+}
+.section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--t3);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-label::before { content: ''; display: block; width: 16px; height: 1px; background: var(--border-hi); }
+
+/* ── Hero ───────────────────────────────────────────────────── */
+.hero {
+  position: relative;
+  padding: 48px 40px;
+  margin: 8px 0 20px;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--r16);
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(0,232,122,0.05) 0%, rgba(0,0,0,0) 40%,
+              rgba(59,158,255,0.04) 100%);
+}
+.hero-bg-grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 0%, transparent 100%);
+}
+.hero-glow {
+  position: absolute;
+  width: 600px; height: 300px;
+  background: radial-gradient(ellipse, rgba(0,232,122,0.12) 0%, transparent 70%);
+  top: -80px; left: -100px;
+  pointer-events: none;
+}
+.hero-inner {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 48px;
+  align-items: center;
+}
+.hero-eyebrow {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--g);
+  margin-bottom: 16px;
+}
+.hero-title {
+  font-family: var(--display);
+  font-size: 64px;
+  font-weight: 800;
+  line-height: 1.0;
+  letter-spacing: -.02em;
+  color: var(--t1);
+  margin-bottom: 20px;
+}
+.hero-accent { color: var(--g); }
+.hero-body { color: var(--t2); font-size: 16px; line-height: 1.7; max-width: 520px; }
+.hero-steps { display: flex; flex-direction: column; gap: 12px; }
+.hero-step {
+  display: flex; gap: 16px; align-items: flex-start;
+  padding: 16px 20px;
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--r12);
+  transition: border-color .2s;
+}
+.hero-step:hover { border-color: var(--g-border); }
+.step-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--g);
+  letter-spacing: .06em;
+  padding-top: 2px;
+  min-width: 20px;
+}
+.step-title { font-weight: 600; font-size: 14px; color: var(--t1); margin-bottom: 3px; }
+.step-desc { font-size: 12px; color: var(--t3); line-height: 1.5; }
+
+/* Pulse dot */
+.pulse-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--g);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,232,122,0.4); }
+  50% { opacity: 0.8; box-shadow: 0 0 0 5px rgba(0,232,122,0); }
+}
+
+/* ── Evidence Strip ─────────────────────────────────────────── */
+.evidence-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+/* ── KPI Cards ──────────────────────────────────────────────── */
+.kpi {
+  padding: 18px 20px;
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r12);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+  transition: border-color .2s, background .2s;
+}
+.kpi:hover { background: var(--s2); }
+.kpi-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--t3);
+}
+.kpi-value {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1.1;
+  color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kpi-sub {
+  font-size: 11px;
+  color: var(--t3);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Mode Banner ────────────────────────────────────────────── */
+.mode-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px;
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r8);
+  margin-bottom: 14px;
+}
+.mode-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.mode-text { font-size: 12px; color: var(--t2); }
+
+/* ── Scenario Cards ─────────────────────────────────────────── */
+.scenario-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.scenario-kpis .kpi-value {
+  font-size: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scenario-armed {
+  padding: 14px 16px;
+  background: var(--a-dim);
+  border: 1px solid var(--a-border);
+  border-radius: var(--r8);
+  margin-bottom: 12px;
+}
+.scenario-armed-header {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--a);
+  margin-bottom: 6px;
+}
+.scenario-armed-tool {
+  font-family: var(--mono); font-size: 16px; font-weight: 500;
+  color: var(--t1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  margin-bottom: 4px;
+}
+.scenario-armed-stats { font-size: 12px; color: var(--t3); }
+.scenario-armed-stats strong { color: var(--t2); }
+
+/* ── Tier Badge ─────────────────────────────────────────────── */
+.tier-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 14px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .06em;
+  margin-top: 10px;
+}
+.tier-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── Rollout / Telemetry ────────────────────────────────────── */
+.rollout-root { display: flex; flex-direction: column; gap: 12px; }
+
+.rollout-progress {
+  padding: 16px 18px;
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--r12);
+}
+.rp-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 10px; }
+.rp-step { font-family: var(--mono); font-size: 22px; font-weight: 500; color: var(--t1); margin-top: 4px; }
+.rp-phase { font-family: var(--mono); font-size: 11px; color: var(--t3); letter-spacing: .06em; }
+.rp-track { height: 4px; background: var(--s3); border-radius: 999px; overflow: hidden; }
+.rp-fill {
+  display: block; height: 100%; border-radius: inherit;
+  background: linear-gradient(90deg, var(--g), var(--b));
+  transition: width .4s cubic-bezier(.4,0,.2,1);
+}
+
+.agent-pill {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px;
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r8);
+  overflow: hidden;
+}
+.agent-pill-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--g); flex-shrink: 0;
+  animation: pulse 2s ease-in-out infinite;
+}
+.agent-pill-name { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--t1); flex-shrink: 0; }
+.agent-pill-desc { font-size: 11px; color: var(--t3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.rollout-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.rollout-kpis .kpi-value { font-size: 22px; }
+
+/* ── Causal Reasoning ───────────────────────────────────────── */
+.causal-block {
+  padding: 16px 18px;
+  background: rgba(59,158,255,0.05);
+  border: 1px solid rgba(59,158,255,0.18);
+  border-radius: var(--r12);
+  animation: fadeUp .25s ease both;
+}
+.causal-header {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--b); margin-bottom: 8px;
+}
+.causal-quote {
+  font-family: var(--mono); font-size: 13px; font-weight: 500;
+  color: var(--t1); margin-bottom: 10px;
+  line-height: 1.5;
+}
+.causal-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.ctag {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px; border: 1px solid var(--border);
+  border-radius: 999px; font-family: var(--mono);
+  font-size: 11px; font-weight: 500; color: var(--t2);
+}
+.ctag-dim { color: var(--t3); }
+.ctag-green { color: var(--g); border-color: var(--g-border); background: var(--g-dim); }
+
+/* ── Trajectory ─────────────────────────────────────────────── */
+.traj-header {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--t3); padding: 0 2px;
+}
+.traj-list { display: flex; flex-direction: column; gap: 6px; }
+.traj-row {
+  display: grid;
+  grid-template-columns: 52px 1fr auto auto 70px;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: var(--r8);
+  border-left: 3px solid transparent;
+  animation: fadeUp .2s ease both;
+  overflow: hidden;
+}
+.traj-win { background: rgba(0,232,122,0.06); border-color: var(--g); }
+.traj-loss { background: rgba(255,77,106,0.06); border-color: var(--r); }
+.traj-step { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--t3); white-space: nowrap; }
+.traj-reasoning { font-size: 12px; color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+.traj-tags { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+.ttag {
+  padding: 2px 8px; border-radius: var(--r4);
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  background: var(--s3); color: var(--t2); white-space: nowrap;
+}
+.ttag-viol { background: var(--r-dim); color: var(--r); }
+.traj-loc { font-size: 11px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.traj-reward { font-family: var(--mono); font-size: 13px; font-weight: 500; text-align: right; white-space: nowrap; }
+.rew-pos { color: var(--g); }
+.rew-neg { color: var(--r); }
+.empty-traj { padding: 20px; text-align: center; color: var(--t3); font-size: 12px; }
+
+/* ── Reward DNA ─────────────────────────────────────────────── */
+.reward-dna {
+  padding: 16px 18px;
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r12);
+}
+.dna-header { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--t3); margin-bottom: 12px; }
+.dna-row { display: grid; grid-template-columns: 90px 1fr 48px; align-items: center; gap: 10px; margin: 5px 0; }
+.dna-label { font-family: var(--mono); font-size: 11px; color: var(--t3); }
+.dna-track { height: 5px; background: var(--s3); border-radius: 999px; overflow: hidden; }
+.dna-bar { display: block; height: 100%; border-radius: inherit; transition: width .4s ease; }
+.dna-pos { background: linear-gradient(90deg, var(--g), var(--b)); }
+.dna-neg { background: linear-gradient(90deg, var(--r), var(--a)); }
+.dna-val { font-family: var(--mono); font-size: 11px; font-weight: 500; text-align: right; }
+.dna-val-pos { color: var(--g); }
+.dna-val-neg { color: var(--r); }
+
+/* ── Diff / Change Audit ────────────────────────────────────── */
+.diff-root { display: flex; flex-direction: column; gap: 12px; }
+.diff-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.diff-kpis .kpi-value { font-size: 24px; }
+.diff-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.diff-panel {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r12);
+  overflow: hidden;
+}
+.diff-panel-title {
+  padding: 10px 14px;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--t3);
+  background: var(--s2);
+  border-bottom: 1px solid var(--border);
+}
+.table-scroll { overflow-x: auto; }
+.dt { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+.dt th {
+  padding: 8px 12px;
+  background: var(--s2);
+  color: var(--t3);
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.dt td {
+  padding: 7px 12px;
+  color: var(--t2);
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dt tr:last-child td { border-bottom: none; }
+.empty-row { text-align: center; color: var(--t3) !important; padding: 16px !important; }
+.dbadge {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 9px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+}
+.badge-fixed    { background: var(--g-dim); color: var(--g); }
+.badge-regressed{ background: var(--r-dim); color: var(--r); }
+.badge-shifted  { background: var(--b-dim); color: var(--b); }
+.null-tok       { color: var(--a); font-weight: 600; }
+.diff-placeholder {
+  padding: 24px;
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r12);
+}
+.diff-placeholder-text { font-size: 12px; color: var(--t3); margin-top: 8px; }
+
+/* ── Benchmark Race ─────────────────────────────────────────── */
+.benchmark-root {
+  padding: 20px 22px;
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r12);
+}
+.bench-header { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--t3); margin-bottom: 16px; }
+.race-lane { margin-bottom: 16px; }
+.race-lane:last-of-type { margin-bottom: 0; }
+.race-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.race-name { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--t1); }
+.race-val { font-family: var(--mono); font-size: 13px; font-weight: 500; }
+.race-good { color: var(--g); }
+.race-bad  { color: var(--r); }
+.race-neutral { color: var(--t3); }
+.race-track { height: 8px; background: var(--s3); border-radius: 999px; overflow: hidden; margin-bottom: 4px; }
+.race-bar { display: block; height: 100%; border-radius: inherit; }
+.race-bar-good { background: linear-gradient(90deg, var(--g), var(--b)); }
+.race-bar-bad  { background: linear-gradient(90deg, var(--r), var(--a)); }
+.race-bar-neutral { background: var(--s3); }
+.race-detail { font-size: 11px; color: var(--t3); }
+.bench-foot { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--t3); }
+.bench-foot strong { color: var(--t2); }
+
+/* ── Architecture Cards ─────────────────────────────────────── */
+.arch-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.arch-card {
+  padding: 20px;
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r12);
+  transition: border-color .2s, background .2s;
+}
+.arch-card:hover { background: var(--s2); border-color: var(--border-hi); }
+.arch-icon { font-size: 20px; margin-bottom: 10px; }
+.arch-title { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--t1); margin-bottom: 6px; }
+.arch-desc { font-size: 12px; color: var(--t3); line-height: 1.5; }
+
+/* ── Empty / Unavailable States ─────────────────────────────── */
+.empty-state {
+  padding: 40px;
+  text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.empty-icon { font-size: 28px; color: var(--t3); }
+.empty-title { font-family: var(--mono); font-size: 16px; font-weight: 500; color: var(--t2); }
+.empty-desc { font-size: 12px; color: var(--t3); max-width: 280px; line-height: 1.5; }
+.unavail-banner {
+  padding: 28px;
+  background: var(--r-dim);
+  border: 1px solid var(--r-border);
+  border-radius: var(--r12);
+  text-align: center;
+}
+.unavail-icon { font-size: 24px; color: var(--r); margin-bottom: 8px; }
+.unavail-title { font-family: var(--mono); font-size: 15px; font-weight: 500; color: var(--r); margin-bottom: 6px; }
+.unavail-desc { font-size: 12px; color: var(--t3); }
+
+/* ── Mono util ──────────────────────────────────────────────── */
+.mono { font-family: var(--mono) !important; }
+
+/* ── Animations ─────────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .hero-inner { grid-template-columns: 1fr; gap: 32px; }
+  .hero-title { font-size: 48px; }
+  .evidence-strip { grid-template-columns: repeat(2, 1fr); }
+  .rollout-kpis { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 800px) {
+  .hero { padding: 32px 24px; }
+  .hero-title { font-size: 36px; }
+  .evidence-strip, .scenario-kpis, .diff-kpis { grid-template-columns: 1fr 1fr; }
+  .diff-tables, .arch-grid { grid-template-columns: 1fr; }
+  .traj-row { grid-template-columns: 40px 1fr 60px; }
+  .traj-tags, .traj-loc { display: none; }
+}
+@media (max-width: 560px) {
+  .evidence-strip, .scenario-kpis, .diff-kpis, .rollout-kpis { grid-template-columns: 1fr; }
+}
+"""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  BUILD DEMO
+# ─────────────────────────────────────────────────────────────────────────────
 
 def build_demo():
     choices = available_agent_choices()
     default_choice = "Live GRPO Model" if "Live GRPO Model" in choices else "Heuristic Surgeon"
 
-    with gr.Blocks(title="DataForge Arena") as demo:
+    with gr.Blocks(title="DataForge Arena", css=PREMIUM_CSS, theme=gr.themes.Base()) as demo:
         session_state = gr.State(_new_session_state())
 
         gr.HTML(_hero_html())
         evidence_snapshot = gr.HTML(_evidence_snapshot_html())
 
-        with gr.Row():
-            with gr.Column(scale=1, elem_classes="panel"):
-                gr.HTML("<p class='section-label' style='margin:0 0 10px'>1. Corrupted input</p>")
+        with gr.Row(equal_height=False):
+            # ── Left: Corrupted Input
+            with gr.Column(scale=1):
+                gr.HTML("<div class='section-label'>Corrupted Input</div>")
                 with gr.Row():
-                    btn_easy = gr.Button("Tier 1 Scenario", variant="secondary")
-                    btn_hard = gr.Button("Tier 3 Adversarial", variant="secondary")
-                dirty_view = gr.Dataframe(label="", interactive=False)
+                    btn_easy = gr.Button("⬡  Tier 1 Scenario", variant="secondary")
+                    btn_hard = gr.Button("⬡  Tier 3 Adversarial", variant="secondary")
                 error_stats = gr.HTML("")
+                dirty_view = gr.Dataframe(label="", interactive=False, wrap=False)
 
-            with gr.Column(scale=2, elem_classes="panel"):
-                gr.HTML("<p class='section-label' style='margin:0 0 10px'>2. Agent telemetry</p>")
+            # ── Center: Agent Telemetry
+            with gr.Column(scale=2):
+                gr.HTML("<div class='section-label'>Agent Telemetry</div>")
                 mode_inventory = gr.HTML(_telemetry_intro_html())
-                agent_choice = gr.Radio(choices, value=default_choice, label="EXECUTION PATH")
-                run_btn = gr.Button("EXECUTE AGENT", variant="primary", size="lg")
+                agent_choice = gr.Radio(choices, value=default_choice, label="Execution Path")
+                run_btn = gr.Button("▶  Execute Agent", variant="primary", size="lg")
                 rollout_html = gr.HTML(_empty_state_html())
 
-            with gr.Column(scale=1, elem_classes="panel"):
-                gr.HTML("<p class='section-label' style='margin:0 0 10px'>3. Repaired output</p>")
-                repaired_view = gr.Dataframe(label="", interactive=False)
+            # ── Right: Repaired Output
+            with gr.Column(scale=1):
+                gr.HTML("<div class='section-label'>Repaired Output</div>")
+                repaired_view = gr.Dataframe(label="", interactive=False, wrap=False)
                 with gr.Row():
                     score_before = gr.HTML(_score_card("Before", None))
-                    score_after = gr.HTML(_score_card("After", None))
+                    score_after  = gr.HTML(_score_card("After",  None))
                 diff_html = gr.HTML(_diff_summary_html(None, None, None))
 
-        with gr.Row(elem_classes="panel"):
+        with gr.Row():
             with gr.Column():
-                gr.HTML("<p class='section-label' style='margin:0 0 10px'>Training evidence</p>")
-                refresh_btn = gr.Button("Refresh Evidence", variant="secondary")
+                gr.HTML("<div class='section-label'>Training Evidence</div>")
+                refresh_btn = gr.Button("↻  Refresh Evidence", variant="secondary")
                 with gr.Row():
-                    with gr.Column():
-                        reward_plot = gr.LinePlot(
-                            x="step",
-                            y="total_reward",
-                            title="Reward Curve",
-                            x_title="Step",
-                            y_title="Reward",
-                            height=220,
-                        )
-                    with gr.Column():
-                        difficulty_plot = gr.LinePlot(
-                            x="step",
-                            y="difficulty",
-                            title="Difficulty Escalation",
-                            x_title="Step",
-                            y_title="Tier",
-                            height=220,
-                        )
+                    reward_plot = gr.LinePlot(x="step", y="total_reward", title="Reward Curve",
+                                              x_title="Step", y_title="Reward", height=220)
+                    difficulty_plot = gr.LinePlot(x="step", y="difficulty", title="Difficulty Escalation",
+                                                  x_title="Step", y_title="Tier", height=220)
 
-        with gr.Row(elem_classes="panel"):
-            with gr.Column():
-                gr.HTML("<p class='section-label' style='margin:0 0 10px'>Benchmark snapshot</p>")
+        with gr.Row():
+            with gr.Column(scale=1):
+                gr.HTML("<div class='section-label'>Benchmark Snapshot</div>")
                 benchmark_html = gr.HTML(_benchmark_race_html())
-            with gr.Column():
-                gr.HTML("<p class='section-label' style='margin:0 0 10px'>How it works</p>")
+            with gr.Column(scale=1):
+                gr.HTML("<div class='section-label'>How It Works</div>")
                 architecture_html = gr.HTML(_architecture_html())
 
+        # ── Event handlers
         def generate_easy(state):
             display, stats_html, next_state = generate_episode(1, state)
             meta = next_state["meta"]
             acc_before = rc._field_accuracy(next_state["dirty"], next_state["gt"])
             full_display = next_state["dirty"][[c for c in next_state["dirty"].columns if c != "_is_deleted"]]
             _, total_errors = summarize_corruption(full_display, HEALTHCARE_SCHEMA)
-            return (
-                display,
-                stats_html,
-                next_state,
-                _scenario_ready_html(meta, acc_before, total_errors),
-                None,
-                _score_card("Before", acc_before, "bad"),
-                _score_card("After", None),
-                _diff_summary_html(next_state["dirty"], next_state["dirty"], next_state["gt"]),
-            )
+            return (display, stats_html, next_state,
+                    _scenario_ready_html(meta, acc_before, total_errors), None,
+                    _score_card("Before", acc_before, "neutral"), _score_card("After", None),
+                    _diff_summary_html(next_state["dirty"], next_state["dirty"], next_state["gt"]))
 
         def generate_hard(state):
             display, stats_html, next_state = generate_episode(3, state)
@@ -1533,36 +1587,24 @@ def build_demo():
             acc_before = rc._field_accuracy(next_state["dirty"], next_state["gt"])
             full_display = next_state["dirty"][[c for c in next_state["dirty"].columns if c != "_is_deleted"]]
             _, total_errors = summarize_corruption(full_display, HEALTHCARE_SCHEMA)
-            return (
-                display,
-                stats_html,
-                next_state,
-                _scenario_ready_html(meta, acc_before, total_errors),
-                None,
-                _score_card("Before", acc_before, "bad"),
-                _score_card("After", None),
-                _diff_summary_html(next_state["dirty"], next_state["dirty"], next_state["gt"]),
-            )
+            return (display, stats_html, next_state,
+                    _scenario_ready_html(meta, acc_before, total_errors), None,
+                    _score_card("Before", acc_before, "neutral"), _score_card("After", None),
+                    _diff_summary_html(next_state["dirty"], next_state["dirty"], next_state["gt"]))
 
         def load_dashboard():
             df = get_training_data()
             return _evidence_snapshot_html(), _benchmark_race_html(), df, df
 
         scenario_outputs = [
-            dirty_view,
-            error_stats,
-            session_state,
-            rollout_html,
-            repaired_view,
-            score_before,
-            score_after,
-            diff_html,
+            dirty_view, error_stats, session_state,
+            rollout_html, repaired_view,
+            score_before, score_after, diff_html,
         ]
         btn_easy.click(fn=generate_easy, inputs=[session_state], outputs=scenario_outputs)
         btn_hard.click(fn=generate_hard, inputs=[session_state], outputs=scenario_outputs)
         run_btn.click(
-            fn=simulate_agent,
-            inputs=[agent_choice, session_state],
+            fn=simulate_agent, inputs=[agent_choice, session_state],
             outputs=[rollout_html, repaired_view, score_before, score_after, diff_html, session_state],
         )
         refresh_btn.click(fn=load_dashboard, outputs=[evidence_snapshot, benchmark_html, reward_plot, difficulty_plot])
@@ -1573,13 +1615,10 @@ def build_demo():
 
 demo = build_demo()
 
-
 if __name__ == "__main__":
     server_name = os.getenv("GRADIO_SERVER_NAME", "0.0.0.0")
     server_port = int(os.getenv("PORT", os.getenv("GRADIO_SERVER_PORT", "7860")))
     demo.queue(default_concurrency_limit=8).launch(
         server_name=server_name,
         server_port=server_port,
-        css=DARK_CSS,
-        theme=gr.themes.Base(),
     )
