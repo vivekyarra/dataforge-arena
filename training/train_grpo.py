@@ -130,9 +130,9 @@ def _completion_to_text(completion) -> str:
 def _format_progress_reward(completion) -> float:
     text = _completion_to_text(completion).strip()
     if not text:
-        return -2.0
+        return -1.5
 
-    score = -1.75
+    score = -1.25
     lowered = text.lower()
     if text.startswith("{"):
         score += 0.45
@@ -157,7 +157,7 @@ def _format_progress_reward(completion) -> float:
         if any(alias in lowered for alias in aliases):
             score += 0.20
 
-    return max(-2.0, min(score, -0.25))
+    return max(-1.5, min(score, -0.10))
 
 
 def _extract_suspect_column_indices(rows_json: str, schema: dict) -> dict[int, list[int]]:
@@ -196,27 +196,29 @@ def _dominant_tool_snapshot(history: list[dict], window: int = 24) -> tuple[int,
 def _contextual_reward_shaping(action, episode: dict, parse_mode: str) -> float:
     shaping = 0.0
 
+    # Parse quality — strongly reward exact JSON, gently penalize recovered
     if parse_mode == "exact":
-        shaping += 0.35
+        shaping += 1.00
     elif parse_mode == "recovered":
-        shaping -= 0.45
+        shaping -= 0.25
 
     total_errors = int(episode.get("total_errors", 0))
     if total_errors > 0 and action.tool_id == 7:
-        shaping -= 1.10
+        shaping -= 1.80  # NO_OP when there are errors: very bad
     elif total_errors > 0 and action.tool_id != 7:
-        shaping += 0.10
+        shaping += 0.15
 
+    # Suspect column targeting — reward precision, penalize random targeting
     row_suspects = episode.get("suspect_column_indices", {}).get(int(action.row_id), [])
     if row_suspects and action.tool_id != 7:
         if int(action.column) in row_suspects:
-            shaping += 0.35
+            shaping += 0.55  # targeting the right column
         else:
-            shaping -= 0.20
+            shaping -= 0.35  # wrong column in a suspect row
     elif total_errors > 0 and action.tool_id != 7:
         known_rows = episode.get("suspect_column_indices", {})
         if known_rows and int(action.row_id) not in known_rows:
-            shaping -= 0.20
+            shaping -= 0.35  # targeting a non-suspect row
 
     if total_errors == 0 and action.tool_id == 7:
         shaping += 0.40
@@ -229,9 +231,10 @@ def _contextual_reward_shaping(action, episode: dict, parse_mode: str) -> float:
     elif len(reasoning.split()) > 10:
         shaping -= 0.10
 
+    # Anti-collapse: aggressively penalize tool monoculture
     dominant_tool, dominant_rate = _dominant_tool_snapshot(recent_actions)
-    if dominant_rate >= 0.70 and action.tool_id == dominant_tool:
-        shaping -= min(0.35, 0.10 + (dominant_rate - 0.70) * 0.8)
+    if dominant_rate >= 0.55 and action.tool_id == dominant_tool:
+        shaping -= min(1.50, 0.20 + (dominant_rate - 0.55) * 2.9)
 
     return shaping
 

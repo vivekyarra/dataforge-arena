@@ -54,7 +54,7 @@ class DataForgeEnv(BaseEnv):
         self._current_difficulty: int = corruptor.difficulty
 
     def reset(self) -> DataForgeObservation:
-        n_samples = min(50, len(self._clean_data))
+        n_samples = min(30, len(self._clean_data))
         sample = self._clean_data.sample(n=n_samples, random_state=None).reset_index(drop=True)
         dirty, ground_truth, metadata = self._corruptor.generate_episode(sample)
 
