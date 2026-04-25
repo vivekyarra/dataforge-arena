@@ -197,22 +197,37 @@ def _contextual_reward_shaping(action, episode: dict, parse_mode: str) -> float:
     shaping = 0.0
 
     if parse_mode == "exact":
-        shaping += 0.15
+        shaping += 0.35
     elif parse_mode == "recovered":
-        shaping -= 0.30
+        shaping -= 0.45
 
     total_errors = int(episode.get("total_errors", 0))
     if total_errors > 0 and action.tool_id == 7:
-        shaping -= 0.60
+        shaping -= 1.10
     elif total_errors > 0 and action.tool_id != 7:
-        shaping += 0.05
+        shaping += 0.10
 
     row_suspects = episode.get("suspect_column_indices", {}).get(int(action.row_id), [])
     if row_suspects and action.tool_id != 7:
         if int(action.column) in row_suspects:
-            shaping += 0.12
+            shaping += 0.35
         else:
-            shaping -= 0.05
+            shaping -= 0.20
+    elif total_errors > 0 and action.tool_id != 7:
+        known_rows = episode.get("suspect_column_indices", {})
+        if known_rows and int(action.row_id) not in known_rows:
+            shaping -= 0.20
+
+    if total_errors == 0 and action.tool_id == 7:
+        shaping += 0.40
+    elif total_errors == 0 and action.tool_id != 7:
+        shaping -= 0.50
+
+    reasoning = getattr(action, "reasoning", "").strip().lower()
+    if 2 <= len(reasoning.split()) <= 8:
+        shaping += 0.05
+    elif len(reasoning.split()) > 10:
+        shaping -= 0.10
 
     dominant_tool, dominant_rate = _dominant_tool_snapshot(recent_actions)
     if dominant_rate >= 0.70 and action.tool_id == dominant_tool:
@@ -391,7 +406,7 @@ trainer = GRPOTrainer(
         max_completion_length=model_cfg.get("max_completion_length", 128),
         temperature=model_cfg.get("temperature", 0.5),
         beta=0.01,
-        learning_rate=1e-5,
+        learning_rate=2e-5,
         per_device_train_batch_size=model_cfg["batch_size"],
         gradient_accumulation_steps=model_cfg["grad_accum"],
         num_train_epochs=3,
