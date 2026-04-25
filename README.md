@@ -9,7 +9,7 @@ Theme: World Modeling - Multi-App RL Environment for Enterprise Workflows
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compliant-10b981?style=for-the-badge)](https://github.com/huggingface/openenv)
 [![TRL](https://img.shields.io/badge/TRL-GRPO-f59e0b?style=for-the-badge)](https://huggingface.co/docs/trl/main/en/grpo)
-[![Tests](https://img.shields.io/badge/Tests-60_passed-10b981?style=for-the-badge)](./tests/test_all.py)
+[![Tests](https://img.shields.io/badge/Tests-129_passed-10b981?style=for-the-badge)](./tests)
 [![Evidence](https://img.shields.io/badge/Evidence-committed_artifacts-blue?style=for-the-badge)](./eval/results.json)
 
 ---
@@ -25,6 +25,7 @@ DataForge Arena turns that reality into a compact RL environment:
 - **Grounded reward:** the main signal is `accuracy_delta`, not style, fluency, or self-reported confidence.
 - **GRPO-ready training stack:** TRL GRPO trains a surgeon policy over structured JSON repair actions.
 - **Evidence-first demo:** the UI shows execution provenance, action traces, reward, a cell-level change audit, and a benchmark snapshot.
+- **Zero-setup browser artifact:** a standalone interactive simulator reenacts the loop for judges who only have a browser.
 
 ## What This Repo Proves Today
 
@@ -38,7 +39,7 @@ This public repo is intentionally honest about evidence. It ships a working envi
 | Trained GRPO checkpoint is less destructive than random | `+0.41 pp` advantage in accuracy delta | [`eval/results.json`](./eval/results.json) |
 | T4 GRPO proof run completed | Tesla T4, target `80` steps, last logged step `75` | [`logs/training_log.csv`](./logs/training_log.csv), [`logs/training_curve.png`](./logs/training_curve.png) |
 | Parser improved during the short run | parse success `25% -> 50%`, mean `40.00%` | [`logs/training_log.csv`](./logs/training_log.csv) |
-| Regression suite is green | `60 passed` | `python -m pytest -q` |
+| Regression suite is green | `129 passed` (`60` core + `69` stress) | `python -m pytest -q` |
 
 Important: the trained checkpoint directory itself is not committed because `outputs/` is intentionally ignored. The committed GRPO evidence comes from the Colab-produced checkpoint at `outputs/dataforge-surgeon`; the demo exposes `Live GRPO Model` only when that checkpoint exists locally.
 
@@ -118,6 +119,8 @@ The Gradio demo in [`demo/app.py`](./demo/app.py) has three execution paths:
 
 That checkpoint gate is deliberate. The interface never pretends a live trained model is running when it is not. The judge-facing UI also includes a refreshable evidence panel, a benchmark race view, and a before/after cell diff audit so each rollout can be inspected without narration.
 
+For instant browser-only interaction, open [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html). It is a self-contained front-end artifact that simulates the same corrupt -> detect -> repair -> reward loop without running Python.
+
 ## Quick Start
 
 ```bash
@@ -138,9 +141,11 @@ python eval/evaluate.py --agent-mode heuristic --episodes 20 --tier 1 --steps 5 
 python demo/app.py
 ```
 
+For a zero-setup artifact, open [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html) directly in a browser.
+
 For Colab GPU training, use [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb). Its setup cell pins the stack that already completed a real Tesla T4 run for this project: `torch==2.10.0+cu128`, `trl==0.24.0`, `unsloth==2026.4.8`, `peft>=0.14.0`, plus the minimal training dependencies, then imports `GRPOTrainer` as a preflight check before training begins.
 
-The current T4 defaults are tuned to reduce cold-start collapse during GRPO: warmer sampling, `6` generations per prompt, longer completions, and extra training-time diagnostics for partial parses, invalid actions, and dominant-tool drift.
+The current T4 defaults now bias toward denser learning and lower cost: `4` generations per prompt, `64`-token completions, `1024` sequence length, a smaller episode pool, and stronger shaping for exact parses plus suspect-row targeting.
 
 After training and saving a checkpoint to `outputs/dataforge-surgeon`:
 
@@ -178,8 +183,9 @@ class DataForgeEnv(BaseEnv):
 - [`training/`](./training): GRPO training loop, prompt construction, parser hardening, model selection, and logging
 - [`eval/`](./eval): heuristic vs GRPO evaluation harness and committed evidence artifact
 - [`demo/`](./demo): judge-facing Gradio demo with provenance-aware execution modes
+- [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html): standalone browser artifact for zero-setup judge interaction
 - [`logs/training_curve.png`](./logs/training_curve.png): final Colab reward curve artifact
-- [`tests/`](./tests): regression tests for parser, corruptor, environment, validation, and evidence boundaries
+- [`tests/`](./tests): regression tests with `60` core checks plus `69` stress checks for parser fuzzing, reward bounds, tool coverage, schema integrity, and evidence files
 - [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb): notebook path for final training and artifact export
 - [`pitch_script.md`](./pitch_script.md): three-minute judge narration with a demo moment
 - [`final_submission_summary.md`](./final_submission_summary.md): concise final evidence and pitch positioning
@@ -190,6 +196,7 @@ class DataForgeEnv(BaseEnv):
 |----------|-----|
 | Live HF Space | https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env |
 | Colab Notebook | [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb) |
+| Browser Artifact | [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html) |
 | Judge Pitch Script | [`pitch_script.md`](./pitch_script.md) |
 | HF Blog Post | https://huggingface.co/blog/Vivek567/dataforge-arena |
 | GitHub | https://github.com/vivekyarra/dataforge-arena |

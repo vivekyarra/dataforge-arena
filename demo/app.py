@@ -983,7 +983,138 @@ body,
   .panel { padding: 14px; }
   .progress-copy { flex-direction: column; align-items: start; }
 }
+
+@keyframes pulse-border {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.25), inset 0 1px 0 rgba(255,255,255,0.05); }
+  50% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.06), inset 0 1px 0 rgba(255,255,255,0.05); }
+}
+@keyframes slide-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes glow-bar {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.3); }
+}
+.metric-card.metric-good { animation: pulse-border 3.2s ease-in-out infinite; }
+.rollout-row { animation: slide-in-up 0.22s ease both; }
+.reward-dna-shell {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--df-border);
+  border-radius: 8px;
+  background: rgba(7, 9, 20, 0.72);
+}
+.reward-dna-title {
+  color: var(--df-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.reward-dna-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) 52px;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0;
+}
+.reward-dna-label {
+  color: var(--df-soft);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.reward-dna-track {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(148,163,184,0.12);
+  overflow: hidden;
+}
+.reward-dna-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  animation: glow-bar 2.4s ease-in-out infinite;
+}
+.reward-dna-bar-pos { background: linear-gradient(90deg, rgba(34,197,94,.9), rgba(56,189,248,.8)); }
+.reward-dna-bar-neg { background: linear-gradient(90deg, rgba(251,113,133,.9), rgba(245,158,11,.7)); }
+.reward-dna-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  text-align: right;
+  font-weight: 700;
+}
+.reward-dna-val-pos { color: var(--df-good); }
+.reward-dna-val-neg { color: var(--df-bad); }
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid rgba(245,158,11,0.4);
+  background: rgba(245,158,11,0.12);
+  color: #fde68a;
+}
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--df-good);
+  animation: pulse-border 1.8s ease-in-out infinite;
+  display: inline-block;
+}
 """
+
+
+def _reward_dna_html(components: dict) -> str:
+    if not components:
+        return ""
+
+    labels = {
+        "accuracy_delta": "Accuracy",
+        "tool_logic": "Tool Logic",
+        "reasoning": "Reasoning",
+        "efficiency": "Efficiency",
+        "anti_hack": "Anti-Hack",
+    }
+    numeric_values = [abs(float(value)) for value in components.values() if isinstance(value, (int, float))]
+    scale = max(numeric_values, default=1.0) or 1.0
+    rows = []
+    for key, label in labels.items():
+        value = float(components.get(key, 0.0))
+        pct = min(100.0, abs(value) / scale * 100.0)
+        bar_cls = "reward-dna-bar-pos" if value >= 0 else "reward-dna-bar-neg"
+        val_cls = "reward-dna-val-pos" if value >= 0 else "reward-dna-val-neg"
+        rows.append(
+            f"<div class='reward-dna-row'>"
+            f"<div class='reward-dna-label'>{_escape(label)}</div>"
+            f"<div class='reward-dna-track'><span class='reward-dna-bar {bar_cls}' style='width:{pct:.1f}%'></span></div>"
+            f"<div class='reward-dna-val {val_cls}'>{value:+.2f}</div>"
+            f"</div>"
+        )
+    return (
+        "<div class='reward-dna-shell'>"
+        "<div class='reward-dna-title'>Reward DNA - last step</div>"
+        + "".join(rows)
+        + "</div>"
+    )
+
+
+def _tier_badge_html(tier: int) -> str:
+    labels = {
+        1: "Tier 1 - Simple Nulls",
+        2: "Tier 2 - Cluster Corruption",
+        3: "Tier 3 - Relational Failures",
+    }
+    return (
+        "<span class='tier-badge'><span class='live-dot'></span>"
+        f"{_escape(labels.get(tier, f'Tier {tier}'))}</span>"
+    )
 
 
 def get_training_data():
@@ -1019,6 +1150,7 @@ def generate_episode(tier, session_state):
       {_metric_card("Visible issues", str(total_errors), "Schema-level corruption signals", "bad" if total_errors else "good")}
       {_metric_card("Corruption type", meta.get("tool", "unknown"), "Adversarial episode generator", "warn")}
     </div>
+    <div style='margin-top:10px'>{_tier_badge_html(tier)}</div>
     """
     return display, stats_html, session_state
 
@@ -1121,6 +1253,9 @@ def render_ui_state(rollouts, original_state, current_state, gt, acc_before, age
           <div style='color:#94a3b8; white-space:nowrap;'>{breakdown}</div>
           <div style='color:#fde68a; font-weight:600; white-space:nowrap;'>Reward={rollout.get("reward", 0):+.2f}</div>
         </div>"""
+
+    if rollouts:
+        rollout_html += _reward_dna_html(rollouts[-1].get("components", {}))
 
     rollout_html += "</div>"
     repaired_display = current_state[[c for c in current_state.columns if c != "_is_deleted"]].head(8).copy()

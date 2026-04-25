@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DataForge Arena Browser Simulator</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050816;
+      --panel: rgba(11, 17, 32, 0.92);
+      --panel-soft: rgba(15, 23, 42, 0.84);
+      --border: rgba(148, 163, 184, 0.18);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --good: #22c55e;
+      --warn: #f59e0b;
+      --bad: #fb7185;
+      --accent: #38bdf8;
+      --accent-2: #2dd4bf;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 30%),
+        radial-gradient(circle at top right, rgba(45, 212, 191, 0.14), transparent 32%),
+        linear-gradient(180deg, #020617 0%, var(--bg) 100%);
+      color: var(--text);
+    }
+
+    .shell {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.9fr);
+      gap: 20px;
+      align-items: start;
+      margin-bottom: 20px;
+    }
+
+    .headline,
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 20px 60px rgba(2, 6, 23, 0.35);
+    }
+
+    .headline {
+      padding: 24px;
+    }
+
+    .headline h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .headline p,
+    .side-note p {
+      color: var(--muted);
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    .headline-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .headline-metric,
+    .metric,
+    .control-card {
+      background: var(--panel-soft);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .headline-metric {
+      padding: 12px;
+    }
+
+    .label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0;
+      margin-bottom: 6px;
+    }
+
+    .value {
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .value.good { color: var(--good); }
+    .value.warn { color: #fde68a; }
+    .value.bad { color: var(--bad); }
+
+    .side-note {
+      padding: 20px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .pill-row,
+    .button-row,
+    .segmented {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .pill,
+    button,
+    select {
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(15, 23, 42, 0.9);
+      color: var(--text);
+      padding: 10px 14px;
+      font-size: 14px;
+    }
+
+    button {
+      cursor: pointer;
+      transition: transform 150ms ease, border-color 150ms ease, background 150ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(56, 189, 248, 0.42);
+      background: rgba(30, 41, 59, 0.96);
+    }
+
+    button.primary {
+      background: linear-gradient(135deg, rgba(34, 197, 94, 0.95), rgba(56, 189, 248, 0.85));
+      border: 0;
+      color: #04101d;
+      font-weight: 700;
+    }
+
+    .segmented button.active {
+      background: rgba(56, 189, 248, 0.14);
+      border-color: rgba(56, 189, 248, 0.45);
+      color: #dff6ff;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+      gap: 20px;
+    }
+
+    .panel {
+      padding: 18px;
+    }
+
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.45);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+      font-size: 13px;
+    }
+
+    thead th {
+      background: rgba(15, 23, 42, 0.96);
+      color: var(--muted);
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+    }
+
+    tbody td {
+      padding: 10px 12px;
+      border-top: 1px solid rgba(148, 163, 184, 0.08);
+      transition: background 220ms ease, color 220ms ease, transform 220ms ease;
+    }
+
+    tbody tr:nth-child(odd) td {
+      background: rgba(15, 23, 42, 0.36);
+    }
+
+    .cell-bad {
+      background: rgba(251, 113, 133, 0.12) !important;
+      color: #fecdd3;
+    }
+
+    .cell-fixed {
+      background: rgba(34, 197, 94, 0.16) !important;
+      color: #dcfce7;
+      animation: flash-fixed 800ms ease;
+    }
+
+    .row-deleted td {
+      opacity: 0.42;
+      text-decoration: line-through;
+    }
+
+    @keyframes flash-fixed {
+      0% { transform: scale(1); box-shadow: inset 0 0 0 999px rgba(56, 189, 248, 0.35); }
+      100% { transform: scale(1); box-shadow: inset 0 0 0 0 rgba(56, 189, 248, 0.0); }
+    }
+
+    @keyframes pulse-bar {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.18); }
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      padding: 12px;
+    }
+
+    .metric .value {
+      font-size: 20px;
+    }
+
+    .reward-gauge {
+      margin-top: 14px;
+      padding: 14px;
+      background: var(--panel-soft);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .gauge-track,
+    .dna-track,
+    .race-track {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.12);
+      overflow: hidden;
+    }
+
+    .gauge-bar,
+    .dna-bar,
+    .race-bar {
+      height: 100%;
+      border-radius: inherit;
+      animation: pulse-bar 2.2s ease-in-out infinite;
+      transition: width 220ms ease;
+    }
+
+    .gauge-bar {
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.95), rgba(34, 197, 94, 0.9));
+    }
+
+    .reward-copy {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dna {
+      margin-top: 16px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .dna-row {
+      display: grid;
+      grid-template-columns: 100px minmax(0, 1fr) 54px;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .dna-bar.good,
+    .race-bar.good {
+      background: linear-gradient(90deg, rgba(34, 197, 94, 0.92), rgba(56, 189, 248, 0.8));
+    }
+
+    .dna-bar.bad,
+    .race-bar.bad {
+      background: linear-gradient(90deg, rgba(251, 113, 133, 0.92), rgba(245, 158, 11, 0.78));
+    }
+
+    .dna-value.good { color: var(--good); }
+    .dna-value.bad { color: var(--bad); }
+
+    .log {
+      margin-top: 16px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .log-item,
+    .race-row {
+      background: var(--panel-soft);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .log-item {
+      display: grid;
+      gap: 6px;
+    }
+
+    .log-top,
+    .race-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(56, 189, 248, 0.14);
+      color: #dff6ff;
+    }
+
+    .log-meta {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .race {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .race-row .label {
+      margin: 0;
+    }
+
+    .race-copy {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .artifact-note {
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 1040px) {
+      .hero,
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .headline-metrics,
+      .metrics-grid {
+        grid-template-columns: 1fr;
+      }
+      .dna-row {
+        grid-template-columns: 88px minmax(0, 1fr) 48px;
+      }
+      .shell {
+        padding: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="headline">
+        <div class="pill-row">
+          <span class="pill">OpenEnv-inspired</span>
+          <span class="pill">Zero setup</span>
+          <span class="pill">Browser artifact</span>
+        </div>
+        <h1>DataForge Arena Browser Simulator</h1>
+        <p>
+          This self-contained artifact mirrors the core loop behind DataForge Arena:
+          corrupt a structured table, detect likely issues, pick a repair tool, and
+          score the result with grounded reward components.
+        </p>
+        <div class="headline-metrics">
+          <div class="headline-metric">
+            <div class="label">Loop</div>
+            <div class="value">Corrupt -> Detect -> Repair -> Reward</div>
+          </div>
+          <div class="headline-metric">
+            <div class="label">Agents</div>
+            <div class="value">Random, Heuristic, GRPO-style</div>
+          </div>
+          <div class="headline-metric">
+            <div class="label">Output</div>
+            <div class="value">Live gauge, DNA, race</div>
+          </div>
+        </div>
+      </div>
+      <aside class="headline side-note">
+        <div class="label">Controls</div>
+        <div class="control-card" style="padding:12px;">
+          <div class="label">Scenario Tier</div>
+          <select id="tierSelect">
+            <option value="1">Tier 1 - Simple Nulls</option>
+            <option value="2">Tier 2 - Format Drift</option>
+            <option value="3">Tier 3 - Relational Failures</option>
+          </select>
+        </div>
+        <div>
+          <div class="label">Agent</div>
+          <div class="segmented" id="agentButtons"></div>
+        </div>
+        <div class="button-row">
+          <button class="primary" id="generateBtn">Generate Scenario</button>
+          <button id="stepBtn">Run One Step</button>
+          <button id="fullBtn">Run Full Repair</button>
+          <button id="resetBtn">Reset Scenario</button>
+        </div>
+        <p class="artifact-note">
+          This artifact is local and simulation-only. It does not call the Python backend,
+          but it preserves the same judge-facing idea: structured world state, tool actions,
+          grounded reward, and inspectable behavior.
+        </p>
+      </aside>
+    </section>
+
+    <section class="workspace">
+      <div class="panel">
+        <h2>World State</h2>
+        <div class="table-wrap">
+          <table id="dataTable"></table>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Telemetry</h2>
+        <div class="metrics-grid" id="metricsGrid"></div>
+        <div class="reward-gauge">
+          <div class="reward-copy">
+            <span>Last reward</span>
+            <span id="rewardLabel">+0.00</span>
+          </div>
+          <div class="gauge-track"><div class="gauge-bar" id="rewardBar"></div></div>
+        </div>
+        <div class="dna" id="rewardDna"></div>
+        <div class="race" id="benchmarkRace"></div>
+        <div class="log" id="actionLog"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const cleanRows = [
+      { patient_id: 1, age: 30, email: "p1@test.com", department_id: 1, department_name: "Cardiology", admission_date: "2024-03-15" },
+      { patient_id: 2, age: 44, email: "p2@test.com", department_id: 2, department_name: "Neurology", admission_date: "2024-03-16" },
+      { patient_id: 3, age: 38, email: "p3@test.com", department_id: 3, department_name: "Oncology", admission_date: "2024-03-17" },
+      { patient_id: 4, age: 52, email: "p4@test.com", department_id: 4, department_name: "Pediatrics", admission_date: "2024-03-18" },
+      { patient_id: 5, age: 35, email: "p5@test.com", department_id: 5, department_name: "Orthopedics", admission_date: "2024-03-19" }
+    ];
+
+    const toolNames = {
+      median: "IMPUTE_MEDIAN",
+      mode: "IMPUTE_MODE",
+      format: "CORRECT_FORMAT",
+      delete: "DELETE_ROW",
+      merge: "MERGE_DUPLICATE",
+      flag: "FLAG_UNCERTAIN",
+      noop: "NO_OP"
+    };
+
+    const agents = ["Random", "Heuristic", "GRPO-style"];
+    const state = {
+      tier: 1,
+      agent: "GRPO-style",
+      clean: cloneRows(cleanRows),
+      dirty: [],
+      originalDirty: [],
+      history: [],
+      repairedCells: new Set(),
+      reward: 0,
+      rewardComponents: {},
+      scenarioLabel: "",
+      benchmark: []
+    };
+
+    function cloneRows(rows) {
+      return JSON.parse(JSON.stringify(rows));
+    }
+
+    function scenarioForTier(tier) {
+      const rows = cloneRows(cleanRows);
+      let label = "Simple null";
+
+      if (tier === 1) {
+        rows[1].age = null;
+        label = "Missing numeric value";
+      } else if (tier === 2) {
+        rows[2].email = "broken-email";
+        rows[3].admission_date = "03/18/2024";
+        label = "Format drift";
+      } else {
+        rows[0].department_name = "INVALID_DEPT";
+        const duplicate = cloneRows([rows[4]])[0];
+        duplicate.email = null;
+        duplicate._extra = true;
+        rows.push(duplicate);
+        label = "Foreign-key break plus duplicate row";
+      }
+
+      return { rows, label };
+    }
+
+    function normalizeValue(column, value) {
+      if (value === null || value === undefined) {
+        return "";
+      }
+      if (column === "admission_date") {
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(String(value))) {
+          const [month, day, year] = String(value).split("/");
+          return `${year}-${month}-${day}`;
+        }
+      }
+      if (column === "email" && typeof value === "string") {
+        return value.trim();
+      }
+      return value;
+    }
+
+    function activeRows(rows) {
+      return rows.filter((row) => !row._deleted);
+    }
+
+    function fieldAccuracy(rows, clean) {
+      const visible = activeRows(rows);
+      const minLen = Math.min(visible.length, clean.length);
+      let correct = 0;
+      let total = clean.length * Object.keys(clean[0]).length;
+
+      for (let rowIndex = 0; rowIndex < minLen; rowIndex += 1) {
+        const row = visible[rowIndex];
+        const gt = clean[rowIndex];
+        for (const key of Object.keys(gt)) {
+          if (normalizeValue(key, row[key]) === normalizeValue(key, gt[key])) {
+            correct += 1;
+          }
+        }
+      }
+
+      return total === 0 ? 1 : correct / total;
+    }
+
+    function findIssues(rows) {
+      const issues = [];
+      rows.forEach((row, rowIndex) => {
+        if (row._deleted) {
+          return;
+        }
+        if (rowIndex >= state.clean.length) {
+          issues.push({
+            rowIndex,
+            column: "row",
+            expected: "merged",
+            actual: "extra row",
+            type: "duplicate",
+            tool: toolNames.merge,
+            severity: 3
+          });
+          return;
+        }
+
+        const gt = state.clean[rowIndex];
+        for (const key of Object.keys(gt)) {
+          const actual = normalizeValue(key, row[key]);
+          const expected = normalizeValue(key, gt[key]);
+          if (actual !== expected) {
+            let type = "mismatch";
+            let tool = toolNames.format;
+            let severity = 1;
+            if (row[key] === null) {
+              type = "null";
+              tool = key === "age" || key === "department_id" ? toolNames.median : toolNames.mode;
+            } else if (key === "department_name" || key === "department_id") {
+              type = "relational";
+              severity = 3;
+            } else if (key === "admission_date" || key === "email") {
+              type = "format";
+              severity = 2;
+            }
+            issues.push({ rowIndex, column: key, expected, actual, type, tool, severity });
+          }
+        }
+      });
+
+      return issues.sort((a, b) => b.severity - a.severity || a.rowIndex - b.rowIndex);
+    }
+
+    function suggestAction(agent, rows) {
+      const issues = findIssues(rows);
+      if (issues.length === 0) {
+        return {
+          tool: toolNames.noop,
+          rowIndex: 0,
+          column: "patient_id",
+          reasoning: "No errors left"
+        };
+      }
+
+      if (agent === "Random") {
+        const pool = [toolNames.median, toolNames.mode, toolNames.format, toolNames.noop, toolNames.merge];
+        const issue = issues[Math.floor(Math.random() * issues.length)];
+        return {
+          tool: pool[Math.floor(Math.random() * pool.length)],
+          rowIndex: issue.rowIndex,
+          column: issue.column === "row" ? "email" : issue.column,
+          reasoning: "Random rollout guess"
+        };
+      }
+
+      const issue = agent === "GRPO-style" ? issues[0] : issues.find((candidate) => candidate.severity >= 1) || issues[0];
+      return {
+        tool: issue.tool,
+        rowIndex: issue.rowIndex,
+        column: issue.column === "row" ? "email" : issue.column,
+        reasoning: issue.type === "null"
+          ? "Missing value targeted"
+          : issue.type === "duplicate"
+            ? "Duplicate row merged"
+            : issue.type === "relational"
+              ? "Schema pair mismatch"
+              : "Format mismatch fixed"
+      };
+    }
+
+    function applyAction(action, rows, captureFlash = true) {
+      const beforeAccuracy = fieldAccuracy(rows, state.clean);
+      const nextRows = cloneRows(rows);
+      const issue = findIssues(nextRows).find((candidate) => (
+        candidate.rowIndex === action.rowIndex
+        && (candidate.column === action.column || candidate.column === "row")
+      ));
+
+      let changed = false;
+      if (action.tool === toolNames.merge || action.tool === toolNames.delete) {
+        if (action.rowIndex >= state.clean.length && nextRows[action.rowIndex]) {
+          nextRows[action.rowIndex]._deleted = true;
+          changed = true;
+        }
+      } else if (action.tool !== toolNames.noop && nextRows[action.rowIndex]) {
+        const gt = state.clean[Math.min(action.rowIndex, state.clean.length - 1)];
+        if (gt && action.column in gt) {
+          nextRows[action.rowIndex][action.column] = gt[action.column];
+          changed = true;
+          if (captureFlash) {
+            state.repairedCells.add(`${action.rowIndex}:${action.column}`);
+            setTimeout(() => state.repairedCells.delete(`${action.rowIndex}:${action.column}`), 900);
+          }
+        }
+      }
+
+      const afterAccuracy = fieldAccuracy(nextRows, state.clean);
+      const accuracyDelta = afterAccuracy - beforeAccuracy;
+      const components = {
+        accuracy_delta: +(accuracyDelta * 8).toFixed(2),
+        tool_logic: 0,
+        reasoning: action.reasoning.length >= 10 ? 0.2 : 0.05,
+        efficiency: 0,
+        anti_hack: 0
+      };
+
+      if (!issue && action.tool === toolNames.noop) {
+        components.tool_logic = 0.5;
+      } else if (issue && action.tool === issue.tool) {
+        components.tool_logic = 0.9;
+        components.efficiency = 0.35;
+      } else if (issue && action.tool === toolNames.noop) {
+        components.tool_logic = -0.8;
+        components.efficiency = -0.5;
+      } else if (changed) {
+        components.tool_logic = 0.2;
+      } else {
+        components.tool_logic = -0.35;
+      }
+
+      const deletedRate = nextRows.filter((row) => row._deleted).length / nextRows.length;
+      if (deletedRate > 0.25) {
+        components.anti_hack = -1.5;
+      }
+
+      const totalReward = Object.values(components).reduce((sum, value) => sum + value, 0);
+      return {
+        rows: nextRows,
+        totalReward: +totalReward.toFixed(2),
+        components
+      };
+    }
+
+    function runScenario(agent, rows, limit = 4) {
+      let working = cloneRows(rows);
+      let totalReward = 0;
+      const before = fieldAccuracy(working, state.clean);
+
+      for (let step = 0; step < limit; step += 1) {
+        const issues = findIssues(working);
+        if (!issues.length) {
+          break;
+        }
+        const action = suggestAction(agent, working);
+        const result = applyAction(action, working, false);
+        working = result.rows;
+        totalReward += result.totalReward;
+      }
+
+      const after = fieldAccuracy(working, state.clean);
+      return {
+        agent,
+        delta: +(after - before).toFixed(3),
+        reward: +totalReward.toFixed(2)
+      };
+    }
+
+    function generateScenario() {
+      state.tier = Number(document.getElementById("tierSelect").value);
+      const scenario = scenarioForTier(state.tier);
+      state.dirty = cloneRows(scenario.rows);
+      state.originalDirty = cloneRows(scenario.rows);
+      state.history = [];
+      state.repairedCells.clear();
+      state.reward = 0;
+      state.rewardComponents = {};
+      state.scenarioLabel = scenario.label;
+      state.benchmark = [
+        runScenario("Random", state.originalDirty),
+        runScenario("Heuristic", state.originalDirty),
+        runScenario("GRPO-style", state.originalDirty)
+      ];
+      render();
+    }
+
+    function resetScenario() {
+      state.dirty = cloneRows(state.originalDirty);
+      state.history = [];
+      state.repairedCells.clear();
+      state.reward = 0;
+      state.rewardComponents = {};
+      render();
+    }
+
+    function stepScenario() {
+      const action = suggestAction(state.agent, state.dirty);
+      const before = fieldAccuracy(state.dirty, state.clean);
+      const result = applyAction(action, state.dirty);
+      state.dirty = result.rows;
+      state.reward = result.totalReward;
+      state.rewardComponents = result.components;
+      const after = fieldAccuracy(state.dirty, state.clean);
+      state.history.unshift({
+        step: state.history.length + 1,
+        action,
+        reward: result.totalReward,
+        accuracyBefore: before,
+        accuracyAfter: after
+      });
+      render();
+    }
+
+    function fullRepair() {
+      for (let step = 0; step < 4; step += 1) {
+        if (!findIssues(state.dirty).length) {
+          break;
+        }
+        stepScenario();
+      }
+    }
+
+    function renderMetrics() {
+      const before = fieldAccuracy(state.originalDirty, state.clean);
+      const after = fieldAccuracy(state.dirty, state.clean);
+      const issueCount = findIssues(state.dirty).length;
+      const metrics = [
+        { label: "Scenario", value: state.scenarioLabel || "Pending", tone: "warn" },
+        { label: "Tier", value: `Tier ${state.tier}`, tone: "warn" },
+        { label: "Accuracy before", value: `${(before * 100).toFixed(1)}%`, tone: "bad" },
+        { label: "Accuracy after", value: `${(after * 100).toFixed(1)}%`, tone: after >= before ? "good" : "bad" },
+        { label: "Open issues", value: String(issueCount), tone: issueCount ? "bad" : "good" },
+        { label: "Tool calls", value: String(state.history.length), tone: "warn" }
+      ];
+
+      document.getElementById("metricsGrid").innerHTML = metrics.map((metric) => `
+        <div class="metric">
+          <div class="label">${metric.label}</div>
+          <div class="value ${metric.tone}">${metric.value}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderGauge() {
+      const normalized = Math.max(0, Math.min(100, ((state.reward + 4) / 8) * 100));
+      document.getElementById("rewardBar").style.width = `${normalized}%`;
+      document.getElementById("rewardLabel").textContent = state.reward >= 0 ? `+${state.reward.toFixed(2)}` : state.reward.toFixed(2);
+    }
+
+    function renderDna() {
+      const labels = [
+        ["accuracy_delta", "Accuracy"],
+        ["tool_logic", "Tool Logic"],
+        ["reasoning", "Reasoning"],
+        ["efficiency", "Efficiency"],
+        ["anti_hack", "Anti-Hack"]
+      ];
+      const values = Object.values(state.rewardComponents);
+      const scale = Math.max(1, ...values.map((value) => Math.abs(value)));
+      const html = labels.map(([key, label]) => {
+        const value = Number(state.rewardComponents[key] || 0);
+        const width = Math.min(100, (Math.abs(value) / scale) * 100);
+        const tone = value >= 0 ? "good" : "bad";
+        const text = value >= 0 ? `+${value.toFixed(2)}` : value.toFixed(2);
+        return `
+          <div class="dna-row">
+            <div>${label}</div>
+            <div class="dna-track"><div class="dna-bar ${tone}" style="width:${width}%"></div></div>
+            <div class="dna-value ${tone}">${text}</div>
+          </div>
+        `;
+      }).join("");
+      document.getElementById("rewardDna").innerHTML = `
+        <div class="label">Reward DNA</div>
+        ${html}
+      `;
+    }
+
+    function renderRace() {
+      const best = Math.max(...state.benchmark.map((entry) => entry.delta), 0.001);
+      document.getElementById("benchmarkRace").innerHTML = `
+        <div class="label">Benchmark race on this scenario</div>
+        ${state.benchmark.map((entry) => {
+          const width = Math.max(8, Math.abs(entry.delta / best) * 100);
+          const tone = entry.delta >= 0 ? "good" : "bad";
+          return `
+            <div class="race-row">
+              <div class="race-copy">
+                <strong>${entry.agent}</strong>
+                <span>${entry.delta >= 0 ? "+" : ""}${(entry.delta * 100).toFixed(1)} pp | reward ${entry.reward >= 0 ? "+" : ""}${entry.reward.toFixed(2)}</span>
+              </div>
+              <div class="race-track"><div class="race-bar ${tone}" style="width:${width}%"></div></div>
+            </div>
+          `;
+        }).join("")}
+      `;
+    }
+
+    function renderLog() {
+      document.getElementById("actionLog").innerHTML = `
+        <div class="label">Trajectory log</div>
+        ${state.history.length ? state.history.map((entry) => `
+          <div class="log-item">
+            <div class="log-top">
+              <span class="tag">Step ${String(entry.step).padStart(2, "0")}</span>
+              <strong>${entry.reward >= 0 ? "+" : ""}${entry.reward.toFixed(2)}</strong>
+            </div>
+            <div>${entry.action.tool}</div>
+            <div class="log-meta">
+              Row ${entry.action.rowIndex}, column ${entry.action.column} | ${entry.action.reasoning}
+            </div>
+            <div class="log-meta">
+              ${(entry.accuracyBefore * 100).toFixed(1)}% -> ${(entry.accuracyAfter * 100).toFixed(1)}%
+            </div>
+          </div>
+        `).join("") : "<div class='log-item'><div class='log-meta'>No actions yet. Generate a scenario and run a step.</div></div>"}
+      `;
+    }
+
+    function renderTable() {
+      const headers = ["patient_id", "age", "email", "department_id", "department_name", "admission_date"];
+      const issues = findIssues(state.dirty);
+      const issueSet = new Set(issues.map((issue) => `${issue.rowIndex}:${issue.column}`));
+      const rowsHtml = state.dirty.map((row, rowIndex) => `
+        <tr class="${row._deleted ? "row-deleted" : ""}">
+          ${headers.map((column) => {
+            const key = `${rowIndex}:${column}`;
+            const classes = [
+              issueSet.has(key) ? "cell-bad" : "",
+              state.repairedCells.has(key) ? "cell-fixed" : ""
+            ].filter(Boolean).join(" ");
+            const value = row[column] === null || row[column] === undefined ? "<em>null</em>" : row[column];
+            return `<td class="${classes}">${value}</td>`;
+          }).join("")}
+        </tr>
+      `).join("");
+      document.getElementById("dataTable").innerHTML = `
+        <thead>
+          <tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      `;
+    }
+
+    function renderAgentButtons() {
+      const shell = document.getElementById("agentButtons");
+      shell.innerHTML = agents.map((agent) => `
+        <button class="${agent === state.agent ? "active" : ""}" data-agent="${agent}">${agent}</button>
+      `).join("");
+      shell.querySelectorAll("button").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.agent = button.dataset.agent;
+          renderAgentButtons();
+        });
+      });
+    }
+
+    function render() {
+      renderMetrics();
+      renderGauge();
+      renderDna();
+      renderRace();
+      renderLog();
+      renderTable();
+      renderAgentButtons();
+    }
+
+    document.getElementById("generateBtn").addEventListener("click", generateScenario);
+    document.getElementById("stepBtn").addEventListener("click", stepScenario);
+    document.getElementById("fullBtn").addEventListener("click", fullRepair);
+    document.getElementById("resetBtn").addEventListener("click", resetScenario);
+    document.getElementById("tierSelect").addEventListener("change", generateScenario);
+
+    generateScenario();
+  </script>
+</body>
+</html>
