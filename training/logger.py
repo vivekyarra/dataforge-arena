@@ -7,7 +7,7 @@ class TrainingLogger:
     def __init__(self, path="training_log.csv"):
         self.path = path
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
-        
+
         with open(path, 'w', newline='') as f:
             csv.writer(f).writerow([
                 "timestamp", "step", "total_reward",
@@ -16,14 +16,17 @@ class TrainingLogger:
                 "difficulty", "model_label", "parse_success_rate",
                 "parse_recovered_rate", "invalid_action_rate",
                 "avg_structural_penalty", "dominant_tool", "dominant_tool_rate",
+                # CHANGE 5 — new column
+                "violation_type",
             ])
-    
+
     def log(self, step: int, reward_dict: dict,
             difficulty: int, model_label: str,
             parse_successes: int, total_rollouts: int,
             parse_recoveries: int = 0, invalid_actions: int = 0,
             avg_structural_penalty: float = 0.0,
-            dominant_tool: int = -1, dominant_tool_rate: float = 0.0):
+            dominant_tool: int = -1, dominant_tool_rate: float = 0.0,
+            violation_type: str = ""):
         with open(self.path, 'a', newline='') as f:
             csv.writer(f).writerow([
                 datetime.now().isoformat(),
@@ -43,8 +46,10 @@ class TrainingLogger:
                 round(avg_structural_penalty, 4),
                 dominant_tool,
                 round(dominant_tool_rate, 3),
+                # CHANGE 5 — log violation_type
+                violation_type,
             ])
-    
+
     def detect_collapse(self, recent_actions: list, threshold=0.75) -> bool:
         """Returns True if agent is collapsing into one tool."""
         if len(recent_actions) < 20:

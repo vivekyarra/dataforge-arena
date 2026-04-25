@@ -207,6 +207,7 @@ def _dominant_tool_snapshot(history: list[dict], window: int = 24) -> tuple[int,
     return dominant_tool, dominant_count / max(len(recent), 1)
 
 
+# CHANGE 1 — violation_type alignment bonus added to _contextual_reward_shaping()
 def _contextual_reward_shaping(action, episode: dict, parse_mode: str, training_step: int) -> float:
     shaping = 0.0
 
@@ -215,6 +216,24 @@ def _contextual_reward_shaping(action, episode: dict, parse_mode: str, training_
         shaping += 1.50
     elif parse_mode == "recovered":
         shaping -= 0.15
+
+    # Bonus: agent's tool matches the violation type from observation
+    violation_type = episode.get("violation_type", "")
+    tool_violation_map = {
+        "null_numeric":    {0},
+        "null_categorical":{1, 2},
+        "range":           {3},
+        "type_error":      {3},
+        "enum_violation":  {3},
+        "fk_mismatch":     {3},
+        "clean":           {7},
+    }
+    expected_tools = tool_violation_map.get(violation_type, set())
+    if expected_tools:
+        if action.tool_id in expected_tools:
+            shaping += 1.50  # agent correctly understood the violation type
+        elif violation_type and action.tool_id == 7 and violation_type != "clean":
+            shaping -= 2.00  # NO_OP on a real violation: very wrong
 
     total_errors = int(episode.get("total_errors", 0))
     if total_errors > 0 and action.tool_id == 7:
@@ -279,6 +298,9 @@ def build_dataset(n=200) -> Dataset:
             "difficulty": obs.difficulty,
             "total_errors": obs.total_errors,
             "suspect_column_indices": _extract_suspect_column_indices(obs.rows_json, env._schema),
+            # CHANGE 2 — store violation_type and column_stats from the initial observation
+            "violation_type": getattr(obs, 'violation_type', ''),
+            "column_stats": getattr(obs, 'column_stats', ''),
         }
         prompts.append({"prompt": _attach_episode_key(build_prompt(obs), episode_key)})
     return Dataset.from_list(prompts)
@@ -326,6 +348,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         env._original_dirty = episode["original_dirty"].copy()
         env._prev_accuracy = episode["prev_accuracy"]
         env._starting_accuracy = episode["starting_accuracy"]
+        # CHANGE 3 — restore schema on env (verified present)
         env._schema = episode["schema"]
         env._step_count = 0
         env._action_log = []
@@ -349,6 +372,8 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
                 rewards.append(structural_penalty)
                 continue
 
+        # CHANGE 4 — env.step() uses schema internally; episode now carries violation_type
+        # which _contextual_reward_shaping() reads from the episode dict directly.
         _, reward, _, info = env.step(action)
         policy_shaping = _contextual_reward_shaping(action, episode, parse_mode, current_step[0])
         if info.get("invalid_action"):
@@ -377,6 +402,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         parse_rate = parse_successes[0] / max(total_rollouts[0], 1) * 100
         recovered_rate = parse_recoveries[0] / max(total_rollouts[0], 1) * 100
         invalid_rate = invalid_actions[0] / max(total_rollouts[0], 1) * 100
+        # CHANGE 5 — log violation_type in every logger.log() call
         logger.log(
             step=current_step[0],
             reward_dict={"total": avg_reward, **avg_components},
@@ -389,6 +415,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
             avg_structural_penalty=structural_penalty_total[0] / max(total_rollouts[0], 1),
             dominant_tool=dominant_tool,
             dominant_tool_rate=dominant_tool_rate,
+            violation_type=episode.get("violation_type", "") if episode else "",
         )
         print(
             f"Step {current_step[0]:3d} | reward={avg_reward:+.3f} | "
@@ -419,13 +446,14 @@ if not hasattr(model, "warnings_issued"):
 trainer = GRPOTrainer(
     model=model,
     reward_funcs=reward_fn,
+    # CHANGE 6 — GRPOConfig: temperature=0.85, beta=0.005, learning_rate=4e-5, max_steps=300
     args=GRPOConfig(
         output_dir="outputs/dataforge-surgeon",
         num_generations=model_cfg["num_generations"],
         max_completion_length=model_cfg.get("max_completion_length", 128),
-        temperature=model_cfg.get("temperature", 0.5),
-        beta=0.01,
-        learning_rate=2e-5,
+        temperature=0.85,
+        beta=0.005,
+        learning_rate=4e-5,
         warmup_ratio=0.08,
         per_device_train_batch_size=model_cfg["batch_size"],
         gradient_accumulation_steps=model_cfg["grad_accum"],
@@ -435,7 +463,7 @@ trainer = GRPOTrainer(
         logging_steps=5,
         save_steps=50,
         report_to="none",
-        max_steps=model_cfg["target_steps"],
+        max_steps=300,
         bf16=precision_cfg["bf16"],
         fp16=precision_cfg["fp16"],
         dataloader_num_workers=0,
