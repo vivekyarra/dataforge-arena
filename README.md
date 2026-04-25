@@ -1,125 +1,116 @@
 # DataForge Arena
 
-> **A World Modeling RL environment where an LLM learns to repair corrupted enterprise data through adversarial self-play.**
+> **An OpenEnv benchmark for training and auditing data-repair agents under adversarial tabular corruption.**
 
-Built for the Meta × PyTorch × HuggingFace × Scaler OpenEnv Hackathon 2026  
-**Theme: 3.1 World Modeling — Multi-App RL Environment for Enterprise Workflows** *(Scaler AI Labs sub-theme)*
+Built for the Meta x PyTorch x Hugging Face x Scaler OpenEnv Hackathon 2026
+
+Theme: World Modeling - Multi-App RL Environment for Enterprise Workflows
 
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compliant-10b981?style=for-the-badge)](https://github.com/huggingface/openenv)
-[![TRL GRPO](https://img.shields.io/badge/TRL-GRPO_Training-f59e0b?style=for-the-badge)](https://huggingface.co/docs/trl/main/en/grpo)
-[![Tests](https://img.shields.io/badge/Tests-28%2F28%20Passing-10b981?style=for-the-badge)](#)
-[![HF Space](https://img.shields.io/badge/🤗_Live_Demo-HF_Space-blue?style=for-the-badge)](https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env)
+[![TRL](https://img.shields.io/badge/TRL-GRPO-f59e0b?style=for-the-badge)](https://huggingface.co/docs/trl/main/en/grpo)
+[![Tests](https://img.shields.io/badge/Tests-43_passed-10b981?style=for-the-badge)](./tests/test_all.py)
+[![Evidence](https://img.shields.io/badge/Evidence-committed_artifacts-blue?style=for-the-badge)](./eval/results.json)
 
 ---
 
-## 🌍 World Modeling — Why This Theme
+## The 60-Second Judge Brief
 
-The agent must build an internal model of what clean data looks like vs what it observes:
-* It must model tool-effect relationships (`IMPUTE_MEDIAN` on null numeric → accuracy restored).
-* It must model adversarial dynamics (Corruptor escalates as Surgeon improves).
-* It must model multi-schema environments (healthcare + financial, same agent).
+Enterprise agents do not fail only because they cannot write text. They fail because the world state is messy, tools have side effects, and every action should be judged by measurable state improvement.
 
-This is a structured world with rules, state, tools, and consequences — the exact class World Modeling RL targets.
+DataForge Arena turns that reality into a compact RL environment:
 
-## The Problem Nobody Solved
+- **OpenEnv-compatible world:** a data table, schema, corruption state, valid tool actions, and reward-bearing transitions.
+- **Adversarial curriculum:** corruption escalates across tiers as the agent improves.
+- **Grounded reward:** the main signal is `accuracy_delta`, not style, fluency, or self-reported confidence.
+- **GRPO-ready training stack:** TRL GRPO trains a surgeon policy over structured JSON repair actions.
+- **Evidence-first demo:** the UI shows execution provenance, action traces, reward, and before/after dataset health.
 
-**$12.9 million per year.** That's what poor data quality costs the average organization (Gartner, 2024). Every enterprise has the same story: corrupted fields, broken foreign keys, phantom duplicates — caught by brittle regex pipelines that break the moment the schema changes.
+## What This Repo Proves Today
 
-LLMs can write code, pass bar exams, and generate artwork. But ask one to look at a corrupted patient record with a null `age` field, a swapped `department_id`, and a duplicated row with a mutated email — and it hallucinates. It picks the wrong tool. It doesn't even notice the duplicate.
+This public repo is intentionally honest about evidence. It ships a working environment, a guarded live-model path, and committed artifacts that can be inspected without trusting a slide.
 
-**No benchmark exists to train this skill.** Until now.
+| Claim | Current evidence | Source |
+|------|------------------|--------|
+| OpenEnv-compatible environment and API | `reset`, `step`, `/health`, `/info`, `/docs` | [`environment/`](./environment), [`environment/server.py`](./environment/server.py) |
+| Judge-facing demo with session isolation | Gradio `gr.State()` per session and guarded model loading | [`demo/app.py`](./demo/app.py) |
+| Heuristic surgeon beats random on committed eval | `+0.53 pp` advantage in accuracy delta | [`eval/results.json`](./eval/results.json) |
+| GRPO curriculum ran through all corruption tiers | observed tiers `1, 2, 3` | [`logs/training_log.csv`](./logs/training_log.csv) |
+| Parser held up during training | mean logged parse success `94.53%` | [`logs/training_log.csv`](./logs/training_log.csv) |
+| Regression suite is green | `43 passed` | `python -m pytest -q` |
 
-## System Architecture
+Important: this repository does **not** currently include a local trained checkpoint at `outputs/dataforge-surgeon`. The demo only exposes `Live GRPO Model` when that checkpoint exists. Until final Colab training artifacts are attached, committed evaluation evidence is explicitly **heuristic**, not trained-checkpoint evaluation.
+
+## Final Submission Numbers To Swap In
+
+Use this table as the single source of placeholder values to replace after the final Colab run.
+
+| Placeholder | Replace with |
+|-------------|--------------|
+| `[PLACEHOLDER: final GRPO eval surgeon_avg_accuracy_delta]` | Final checkpoint value from `python eval/evaluate.py --agent-mode grpo --model-path outputs/dataforge-surgeon` |
+| `[PLACEHOLDER: final GRPO eval random_avg_accuracy_delta]` | Matching random baseline from the same run |
+| `[PLACEHOLDER: final GRPO advantage in percentage points]` | `(surgeon_delta - random_delta) * 100` |
+| `[PLACEHOLDER: final training steps]` | Final Colab training step count |
+| `[PLACEHOLDER: final GPU/runtime]` | Colab hardware and wall-clock runtime |
+| `[PLACEHOLDER: final checkpoint or Hub URL]` | Published model artifact or uploaded checkpoint path |
+
+## Evidence Snapshot
+
+| Metric | Current value |
+|--------|---------------|
+| Evaluation mode | `heuristic` |
+| Surgeon avg accuracy delta | `+0.0010` |
+| Random avg accuracy delta | `-0.0043` |
+| Surgeon advantage accuracy delta | `+0.0053` (`+0.53 pp`) |
+| Surgeon win rate | `50.00%` |
+| Random win rate | `0.00%` |
+| Eval seed / tier / episodes | `seed=7`, `tier=1`, `episodes=20` |
+| Logged parse success mean | `94.53%` |
+| Difficulty tiers observed | `1, 2, 3` |
+
+## Why This Is World Modeling
+
+The agent is not answering a prompt in isolation. It is acting inside a structured world:
+
+- Rows have schema, types, missingness, consistency constraints, and duplicate semantics.
+- Tools change the world state and can help or harm depending on context.
+- The reward computer measures whether the state improved after each action.
+- The corruptor shifts the distribution of failures through an adversarial curriculum.
+
+The loop is the benchmark: observe state, predict tool effects, act, receive grounded feedback, and adapt.
+
+## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph ARENA ["DataForge Arena (OpenEnv)"]
-        direction TB
-        C["CORRUPTOR\nRule-based · 3 Tiers\nDynamic Difficulty Adjustment"]
-        E["Environment State\nHealthcare · Financial\nSolvability Gate"]
-        S["SURGEON\nQwen 2.5 1.5B\nLoRA via Unsloth"]
-        R["Reward Computer\n6 Signals · No LLM Judge\n45s per step on T4"]
-        C -->|inject error| E
-        E -->|corrupted snapshot 5 rows| S
-        S -->|JSON action tool_id column row_id| E
-        E -->|state delta| R
-        R -->|reward vector| S
+    subgraph OPENENV["DataForge Arena OpenEnv"]
+        C["Adversarial Corruptor\n3-tier curriculum"]
+        E["Tabular World State\nhealthcare + finance schemas"]
+        O["Structured Observation\nschema, sample rows, error summary"]
+        A["Surgeon Policy\nheuristic or GRPO checkpoint"]
+        T["Repair Tool Space\nimpute, correct, flag, delete"]
+        R["Reward Computer\naccuracy_delta + safety heuristics"]
+        C --> E
+        E --> O
+        O --> A
+        A --> T
+        T --> E
+        E --> R
+        R --> A
+        R --> C
     end
-    TRL["TRL GRPO\nGroup Relative Policy Optimization"] -->|policy gradient| S
-    R -->|record_episode| C
-    C -->|tier escalates when rolling avg reward over threshold| C
+    TRL["TRL GRPO Training"] --> A
 ```
 
-## Before / After — What the Surgeon Fixes
+## Demo Modes
 
-**Corrupted input the agent sees:**
-```json
-[
-  {"patient_id": 42, "name": "Maria Santos", "age": null,      "department_id": 3,    "admission_date": "2024-03-15"},
-  {"patient_id": 43, "name": "James Obi",    "age": "ERR_74", "department_id": 8742, "admission_date": "03/22/24"}
-]
-```
-*Row 0: null age. Row 1: type error on age, invalid department_id (8742 not in 1–20), wrong date format.*
+The Gradio demo in [`demo/app.py`](./demo/app.py) has three execution paths:
 
-**Surgeon's output actions:**
-```json
-{"reasoning": "Row 0 has null age in numeric column — IMPUTE_MEDIAN fills from column distribution.", "tool_id": 0, "column": 2, "row_id": 0}
-{"reasoning": "ERR_74 is type error in age — IMPUTE_MEDIAN restores numeric value.", "tool_id": 0, "column": 2, "row_id": 1}
-{"reasoning": "Row 1 admission_date is MM/DD/YY — schema requires YYYY-MM-DD — CORRECT_FORMAT normalises.", "tool_id": 3, "column": 4, "row_id": 1}
-```
+- `Naive Baseline`: always available, intentionally weak.
+- `Heuristic Surgeon`: always available, matches the committed evidence artifact.
+- `Live GRPO Model`: appears only when `outputs/dataforge-surgeon` exists locally.
 
-**After repair:**
-```json
-[
-  {"patient_id": 42, "name": "Maria Santos", "age": 39,  "department_id": 3,    "admission_date": "2024-03-15"},
-  {"patient_id": 43, "name": "James Obi",    "age": 39,  "department_id": 8742, "admission_date": "2024-03-22"}
-]
-```
-*Nulls imputed. Type error fixed. Date normalised. department_id FK violation flagged for next step.*
-
----
-
-## Results
-
-| Metric | Value |
-|--------|-------|
-| **Reward progression** | **See `logs/training_log.csv`** |
-| **Difficulty progression** | **Tier 1 → Tier 2 → Tier 3** (DDA unlocked all 3 tiers) |
-| **JSON parse success rate** | **93%+** average across training run |
-| **Format error elimination** | **100%** (CORRECT_FORMAT tool) |
-| **Heuristic surgeon vs random** | **+3.65% accuracy delta advantage** |
-| **Test suite** | **28/28 passing** |
-
-> Training curves and detailed per-step metrics are available in `logs/training_log.csv`. Evaluation results comparing the GRPO-trained surgeon against a random baseline are in `eval/results.json`.
-
----
-
-## Why It Matters
-
-| What Exists | What We Built |
-|-------------|---------------|
-| Text benchmarks (GLUE, MMLU) | **Data quality benchmark** — tests reasoning over structured tabular data |
-| Static datasets | **Dynamic adversarial curriculum** — difficulty scales with agent capability |
-| LLM-as-judge (slow, expensive) | **Heuristic reward computer** — 45s/step on T4, not 5 min |
-| Fixed corruption patterns | **Solvability-gated episodes** — every episode is guaranteed learnable |
-
-## Architecture & Technology Stack
-
-- **PyTorch**: Scalable tensor operations and model backbone.
-- **TRL (Transformer Reinforcement Learning)**: Handles the GRPO training loop, ensuring mathematically sound policy updates.
-- **OpenEnv**: Environment standardization ensuring our environment can plug-and-play with any RL framework.
-- **FastAPI / Gradio**: A robust backend serving the environment and a "Billion-Dollar" frontend visualizing the live inference.
-
-### Adversarial Curriculum (3 Tiers)
-
-| Tier | Epochs | What the Corruptor Does | What the Surgeon Must Learn |
-|------|--------|------------------------|---------------------------|
-| **1** | 0–29 | Single null injection, type errors (`ERR_42`) | Basic imputation, type detection |
-| **2** | 30–69 | Null clusters, date format swaps, out-of-range bounds | Pattern recognition, multi-cell correlation |
-| **3** | 70+ | Foreign key violations, duplicate rows with mutation | Relational reasoning, merge/delete decisions |
-
-Tier transitions use a **10-epoch warmup blend** with fixed beta=0.01; dynamic beta identified as future improvement to prevent catastrophic forgetting when the distribution shifts.
+That checkpoint gate is deliberate. The interface never pretends a live trained model is running when it is not.
 
 ## Quick Start
 
@@ -127,52 +118,68 @@ Tier transitions use a **10-epoch warmup blend** with fixed beta=0.01; dynamic b
 git clone https://github.com/vivekyarra/dataforge-arena.git
 cd dataforge-arena
 pip install -r requirements.txt
+
+# Optional: regenerate clean synthetic datasets
 python training/generate_data.py
 
-# Verify everything works
-pytest tests/test_all.py -v    # 28 tests, all green
+# Verify the environment and contracts
+python -m pytest -q
 
-# Train the Surgeon via GRPO
-python training/train_grpo.py
+# Reproduce the committed heuristic evidence
+python eval/evaluate.py --agent-mode heuristic --episodes 20 --tier 1 --steps 5 --seed 7
 
-# Launch the Tactical Demo (Live Inference & Baselines)
+# Launch the judge-facing demo
 python demo/app.py
 ```
 
-## OpenEnv Compliance
+After training and saving a checkpoint to `outputs/dataforge-surgeon`:
 
-DataForge Arena implements the [OpenEnv](https://github.com/huggingface/openenv) `Env` interface:
+```bash
+python eval/evaluate.py --agent-mode grpo --model-path outputs/dataforge-surgeon
+python demo/app.py
+```
+
+## OpenEnv API
+
+The FastAPI server in [`environment/server.py`](./environment/server.py) exposes:
+
+```text
+GET  /health
+GET  /info
+POST /reset
+POST /step
+GET  /docs
+```
+
+Core environment contract:
 
 ```python
 class DataForgeEnv(BaseEnv):
     def reset(self) -> DataForgeObservation:
-        """Generate a fresh corrupted episode."""
-    def step(self, action: SurgeonAction) -> tuple[Observation, float, bool, dict]:
-        """Apply a repair tool and return reward signals."""
+        ...
+
+    def step(self, action: SurgeonAction) -> tuple[DataForgeObservation, float, bool, dict]:
+        ...
 ```
 
-The environment exposes a **FastAPI server** with CORS support and interactive Swagger docs:
+## Repository Map
 
-```
-GET  /health   → {"status": "ok", "difficulty": 2, "epoch": 73}
-GET  /info     → Full environment metadata and available tools
-GET  /docs     → Interactive Swagger UI
-POST /reset    → DataForgeObservation
-POST /step     → {observation, reward, done, info}
-```
+- [`environment/`](./environment): OpenEnv environment, corruptor, reward logic, tools, schemas, and API server
+- [`training/`](./training): GRPO training loop, prompt construction, parser hardening, model selection, and logging
+- [`eval/`](./eval): heuristic vs GRPO evaluation harness and committed evidence artifact
+- [`demo/`](./demo): judge-facing Gradio demo with provenance-aware execution modes
+- [`tests/`](./tests): regression tests for parser, corruptor, environment, validation, and evidence boundaries
+- [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb): notebook path for final training and artifact export
 
 ## Links
 
 | Resource | URL |
 |----------|-----|
-| 🤗 **Live HF Space** | https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env |
-| 📓 **Colab Notebook** | DataForge_Arena_Colab.ipynb |
-| 📝 **HF Blog Post** | https://huggingface.co/blog/Vivek567/dataforge-arena |
-| 💻 **GitHub** | https://github.com/vivekyarra/dataforge-arena |
-| 📊 **Training Log** | logs/training_log.csv |
+| Live HF Space | https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env |
+| Colab Notebook | [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb) |
+| HF Blog Post | https://huggingface.co/blog/Vivek567/dataforge-arena |
+| GitHub | https://github.com/vivekyarra/dataforge-arena |
 
----
+Built for the [Meta PyTorch OpenEnv AI Hackathon 2026](https://pytorch.org/event/openenv-ai-hackathon/)
 
-> **Built for the [Meta PyTorch OpenEnv AI Hackathon 2026](https://pytorch.org/event/openenv-ai-hackathon/)**
->
-> MIT License
+MIT License

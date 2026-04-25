@@ -1,10 +1,15 @@
 {
-  "description": "Heuristic SURGEON agent vs random baseline across 20 Tier-1 episodes",
+  "agent_mode": "heuristic",
+  "model_source": "heuristic-rule-based",
+  "fallback_used": false,
   "tier": 1,
   "episodes": 20,
-  "surgeon_avg_accuracy_delta": 0.0150,
-  "random_avg_accuracy_delta": -0.0215,
-  "surgeon_advantage": 0.0365,
-  "format_error_elimination_rate": 1.0,
-  "note": "Heuristic agent results. GRPO-trained model evaluation pending next training run with fixed reward signal."
+  "max_steps": 5,
+  "seed": 7,
+  "surgeon_avg_accuracy_delta": 0.001,
+  "random_avg_accuracy_delta": -0.0043,
+  "surgeon_advantage_accuracy_delta": 0.0053,
+  "surgeon_win_rate": 0.5,
+  "random_win_rate": 0.0,
+  "note": "Heuristic surgeon results. No trained GRPO checkpoint was used."
 }

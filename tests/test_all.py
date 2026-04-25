@@ -1,5 +1,6 @@
-"""pytest tests/test_all.py"""
+"""Regression tests for DataForge Arena."""
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -286,6 +287,65 @@ def test_model_selection_l40():
 
     cfg = select_model({"type": "L40S", "vram_gb": 20})
     assert "3B" in cfg["model_name"]
+
+
+def test_eval_resolve_heuristic_agent():
+    from eval.evaluate import resolve_eval_agent
+
+    cfg = resolve_eval_agent("heuristic")
+    assert cfg["agent_mode"] == "heuristic"
+    assert cfg["model_source"] == "heuristic-rule-based"
+    assert cfg["fallback_used"] is False
+
+
+def test_eval_resolve_grpo_requires_local_checkpoint(tmp_path):
+    from eval.evaluate import resolve_eval_agent
+
+    missing_path = tmp_path / "missing-checkpoint"
+    with pytest.raises(FileNotFoundError):
+        resolve_eval_agent("grpo", str(missing_path))
+
+
+def test_committed_eval_results_include_provenance():
+    payload = json.loads(Path("eval/results.json").read_text(encoding="utf-8"))
+    assert payload["agent_mode"] == "heuristic"
+    assert payload["model_source"] == "heuristic-rule-based"
+    assert payload["fallback_used"] is False
+    assert "surgeon_advantage_accuracy_delta" in payload
+    assert "note" in payload
+
+
+def test_server_requirements_cover_demo_entrypoint():
+    requirements = Path("requirements-server.txt").read_text(encoding="utf-8")
+    assert "gradio>=" in requirements
+
+
+def test_server_info_advertises_accuracy_delta_only():
+    import asyncio
+    from environment.server import info
+
+    payload = asyncio.run(info())
+    assert "accuracy_delta" in payload["reward_signals"]
+    assert "accuracy_absolute" not in payload["reward_signals"]
+
+
+def test_demo_hides_live_mode_without_checkpoint():
+    from demo.app import available_agent_choices
+
+    assert available_agent_choices(model_available=False) == [
+        "Naive Baseline",
+        "Heuristic Surgeon",
+    ]
+
+
+def test_demo_shows_live_mode_with_checkpoint():
+    from demo.app import available_agent_choices
+
+    assert available_agent_choices(model_available=True) == [
+        "Naive Baseline",
+        "Heuristic Surgeon",
+        "Live GRPO Model",
+    ]
 
 
 def test_merge_duplicate_excludes_deleted_col(clean_df):

@@ -2,8 +2,8 @@
 DataForge Arena - Evaluation Harness
 
 Usage:
-    python eval/evaluate.py
-    python eval/evaluate.py --episodes 20 --tier 2
+    python eval/evaluate.py --agent-mode heuristic
+    python eval/evaluate.py --agent-mode grpo --model-path outputs/dataforge-surgeon
 """
 import argparse
 import json
@@ -11,6 +11,7 @@ import os
 import random
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -25,6 +26,7 @@ from training.parser import robust_parse_action
 from training.prompt import build_prompt
 
 
+DEFAULT_LOCAL_MODEL_PATH = "outputs/dataforge-surgeon"
 llm_pipeline = None
 
 
@@ -35,33 +37,47 @@ def _preferred_inference_dtype(torch_module, device: int):
     return torch_module.bfloat16 if major >= 8 else torch_module.float16
 
 
-def load_eval_pipeline():
+def resolve_eval_agent(agent_mode: str, model_path: str | None = None) -> dict:
+    if agent_mode == "heuristic":
+        return {
+            "agent_mode": "heuristic",
+            "model_source": "heuristic-rule-based",
+            "model_path": None,
+            "fallback_used": False,
+        }
+
+    resolved_path = model_path or DEFAULT_LOCAL_MODEL_PATH
+    if not Path(resolved_path).exists():
+        raise FileNotFoundError(
+            f"GRPO evaluation requested, but no local checkpoint was found at '{resolved_path}'. "
+            "Train the model first or pass --agent-mode heuristic."
+        )
+
+    return {
+        "agent_mode": "grpo",
+        "model_source": resolved_path,
+        "model_path": resolved_path,
+        "fallback_used": False,
+    }
+
+
+def load_eval_pipeline(model_path: str):
     global llm_pipeline
     if llm_pipeline is not None:
         return llm_pipeline
-    try:
-        from transformers import pipeline
-        import torch
 
-        print("Loading trained LoRA pipeline for eval...")
-        device = 0 if torch.cuda.is_available() else -1
-        model_path = "outputs/dataforge-surgeon"
-        if not os.path.exists(model_path):
-            print(
-                "WARNING: Local LoRA model not found. "
-                "Attempting to pull Vivek567/dataforge-surgeon from the Hub."
-            )
-            model_path = "Vivek567/dataforge-surgeon"
-        llm_pipeline = pipeline(
-            "text-generation",
-            model=model_path,
-            device=device,
-            torch_dtype=_preferred_inference_dtype(torch, device),
-        )
-        return llm_pipeline
-    except Exception as exc:
-        print(f"Failed to load pipeline: {exc}")
-        return None
+    from transformers import pipeline
+    import torch
+
+    print(f"Loading GRPO checkpoint from {model_path} ...")
+    device = 0 if torch.cuda.is_available() else -1
+    llm_pipeline = pipeline(
+        "text-generation",
+        model=model_path,
+        device=device,
+        torch_dtype=_preferred_inference_dtype(torch, device),
+    )
+    return llm_pipeline
 
 
 def random_baseline_agent(state: pd.DataFrame, gt: pd.DataFrame) -> SurgeonAction:
@@ -84,19 +100,13 @@ def heuristic_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame, schema: dict)
 
             if pd.isna(cell) and pd.notna(gt_cell):
                 col_type = schema.get(col_name, {}).get("type", "str")
-                if col_type in ("int", "float"):
-                    return SurgeonAction(
-                        reasoning=f"Null in numeric column '{col_name}' - IMPUTE_MEDIAN",
-                        tool_id=0,
-                        column=col_idx,
-                        row_id=row_idx,
-                    )
-                return SurgeonAction(
-                    reasoning=f"Missing value in '{col_name}' - IMPUTE_MODE",
-                    tool_id=1,
-                    column=col_idx,
-                    row_id=row_idx,
+                tool_id = 0 if col_type in ("int", "float") else 1
+                reason = (
+                    f"Null in numeric column '{col_name}' - IMPUTE_MEDIAN"
+                    if tool_id == 0
+                    else f"Missing value in '{col_name}' - IMPUTE_MODE"
                 )
+                return SurgeonAction(reasoning=reason, tool_id=tool_id, column=col_idx, row_id=row_idx)
 
             if pd.notna(cell) and pd.notna(gt_cell) and str(cell) != str(gt_cell):
                 cell_str = str(cell)
@@ -127,13 +137,7 @@ def heuristic_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame, schema: dict)
     return SurgeonAction(reasoning="no errors detected", tool_id=7, column=0, row_id=0)
 
 
-def grpo_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame, schema: dict, env=None) -> SurgeonAction:
-    global llm_pipeline
-    if llm_pipeline is None:
-        return heuristic_surgeon_agent(state, gt, schema)
-    if env is None or env._state is None:
-        return heuristic_surgeon_agent(state, gt, schema)
-
+def grpo_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame, env: DataForgeEnv) -> SurgeonAction:
     obs = env._make_observation()
     prompt = build_prompt(obs)
     messages = [
@@ -153,7 +157,7 @@ def grpo_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame, schema: dict, env=
         return robust_parse_action(generated_text)
     except Exception as exc:
         return SurgeonAction(
-            reasoning=f"LLM parse failure: {str(exc)[:40]}",
+            reasoning=f"LLM inference failure: {str(exc)[:48]}",
             tool_id=7,
             column=0,
             row_id=0,
@@ -202,33 +206,90 @@ def _bootstrap_eval_env(
     return eval_env
 
 
-def evaluate(n_episodes: int = 10, tier: int = 1, max_steps: int = 5):
+def _build_results_payload(
+    *,
+    agent_config: dict,
+    tier: int,
+    episodes: int,
+    max_steps: int,
+    seed: int,
+    surgeon_delta: float,
+    random_delta: float,
+    surgeon_win_rate: float,
+    random_win_rate: float,
+) -> dict:
+    advantage = surgeon_delta - random_delta
+    payload = {
+        "agent_mode": agent_config["agent_mode"],
+        "model_source": agent_config["model_source"],
+        "fallback_used": agent_config["fallback_used"],
+        "tier": tier,
+        "episodes": episodes,
+        "max_steps": max_steps,
+        "seed": seed,
+        "surgeon_avg_accuracy_delta": round(float(surgeon_delta), 6),
+        "random_avg_accuracy_delta": round(float(random_delta), 6),
+        "surgeon_advantage_accuracy_delta": round(float(advantage), 6),
+        "surgeon_win_rate": round(float(surgeon_win_rate), 6),
+        "random_win_rate": round(float(random_win_rate), 6),
+    }
+    if agent_config["agent_mode"] == "heuristic":
+        payload["note"] = "Heuristic surgeon results. No trained GRPO checkpoint was used."
+    return payload
+
+
+def evaluate(
+    n_episodes: int = 10,
+    tier: int = 1,
+    max_steps: int = 5,
+    agent_mode: str = "heuristic",
+    model_path: str | None = None,
+    seed: int = 7,
+) -> dict:
+    agent_config = resolve_eval_agent(agent_mode, model_path)
     clean_data = pd.read_csv("data/healthcare_clean.csv")
     corruptor = Corruptor()
     corruptor.force_tier(tier)
     rc = RewardComputer()
+
+    random.seed(seed)
+    np.random.seed(seed)
+
+    if agent_config["agent_mode"] == "grpo":
+        load_eval_pipeline(agent_config["model_path"])
 
     results = {
         "random": {"before": [], "after": [], "deltas": []},
         "surgeon": {"before": [], "after": [], "deltas": []},
     }
 
+    surgeon_label = "Heuristic Surgeon" if agent_config["agent_mode"] == "heuristic" else "GRPO Surgeon"
+    surgeon_agent_fn = (
+        (lambda state, target_gt, eval_env: heuristic_surgeon_agent(state, target_gt, HEALTHCARE_SCHEMA))
+        if agent_config["agent_mode"] == "heuristic"
+        else (lambda state, target_gt, eval_env: grpo_surgeon_agent(state, target_gt, eval_env))
+    )
+
     print(f"\n{'=' * 60}")
     print("  DataForge Arena - Evaluation Report")
-    print(f"  Episodes: {n_episodes} | Tier: {tier} | Max Steps: {max_steps}")
+    print(
+        f"  Mode: {agent_config['agent_mode']} | Episodes: {n_episodes} | "
+        f"Tier: {tier} | Max Steps: {max_steps} | Seed: {seed}"
+    )
     print(f"{'=' * 60}\n")
 
-    load_eval_pipeline()
-
     for episode_idx in range(n_episodes):
-        sample = clean_data.sample(n=min(50, len(clean_data))).reset_index(drop=True)
+        sample = clean_data.sample(
+            n=min(50, len(clean_data)),
+            random_state=seed + episode_idx,
+        ).reset_index(drop=True)
         dirty, gt, meta = corruptor.generate_episode(sample)
         gt = _align_duplicate_ground_truth(dirty, gt, meta)
         acc_before = rc._field_accuracy(dirty, gt)
 
         agents = [
             ("random", lambda state, target_gt, eval_env: random_baseline_agent(state, target_gt)),
-            ("surgeon", lambda state, target_gt, eval_env: grpo_surgeon_agent(state, target_gt, HEALTHCARE_SCHEMA, eval_env)),
+            ("surgeon", surgeon_agent_fn),
         ]
 
         for agent_name, agent_fn in agents:
@@ -250,53 +311,75 @@ def evaluate(n_episodes: int = 10, tier: int = 1, max_steps: int = 5):
         print(
             f"  Episode {episode_idx + 1:2d}/{n_episodes} | corruption={meta['tool']:25s} | "
             f"random: {results['random']['deltas'][-1]:+.3f} | "
-            f"surgeon: {results['surgeon']['deltas'][-1]:+.3f}"
+            f"{agent_config['agent_mode']}: {results['surgeon']['deltas'][-1]:+.3f}"
         )
 
     print(f"\n{'-' * 60}")
     print("  RESULTS SUMMARY")
     print(f"{'-' * 60}")
 
-    for agent_name in ["random", "surgeon"]:
+    for agent_name, label in [("random", "Random Baseline"), ("surgeon", surgeon_label)]:
         metrics = results[agent_name]
         avg_before = np.mean(metrics["before"])
         avg_after = np.mean(metrics["after"])
         avg_delta = np.mean(metrics["deltas"])
-        label = "Random Baseline" if agent_name == "random" else "DataForge Surgeon"
+        win_rate = sum(1 for delta in metrics["deltas"] if delta > 0) / max(len(metrics["deltas"]), 1)
         print(f"\n  {label}:")
         print(f"    Avg accuracy before:  {avg_before:.4f}")
         print(f"    Avg accuracy after:   {avg_after:.4f}")
-        print(f"    Avg improvement:      {avg_delta:+.4f} ({avg_delta * 100:+.2f}%)")
-        print(f"    Win rate (delta > 0): {sum(1 for delta in metrics['deltas'] if delta > 0)}/{n_episodes}")
+        print(f"    Avg accuracy delta:   {avg_delta:+.4f} ({avg_delta * 100:+.2f}%)")
+        print(f"    Win rate (delta > 0): {win_rate:.2%}")
 
     surgeon_delta = np.mean(results["surgeon"]["deltas"])
     random_delta = np.mean(results["random"]["deltas"])
-    advantage = surgeon_delta - random_delta
+    surgeon_win_rate = sum(1 for delta in results["surgeon"]["deltas"] if delta > 0) / max(len(results["surgeon"]["deltas"]), 1)
+    random_win_rate = sum(1 for delta in results["random"]["deltas"] if delta > 0) / max(len(results["random"]["deltas"]), 1)
+
+    payload = _build_results_payload(
+        agent_config=agent_config,
+        tier=tier,
+        episodes=n_episodes,
+        max_steps=max_steps,
+        seed=seed,
+        surgeon_delta=surgeon_delta,
+        random_delta=random_delta,
+        surgeon_win_rate=surgeon_win_rate,
+        random_win_rate=random_win_rate,
+    )
 
     print(f"\n{'=' * 60}")
-    print(f"  HEADLINE: Surgeon outperforms random by {advantage * 100:+.2f}% accuracy")
+    print(
+        "  HEADLINE: "
+        f"{surgeon_label} outperforms random by "
+        f"{payload['surgeon_advantage_accuracy_delta'] * 100:+.2f}% accuracy delta"
+    )
     print(f"{'=' * 60}\n")
 
     os.makedirs("eval", exist_ok=True)
     with open("eval/results.json", "w", encoding="utf-8") as handle:
-        json.dump(
-            {
-                "tier": tier,
-                "episodes": n_episodes,
-                "surgeon_avg_delta": round(float(surgeon_delta), 6),
-                "random_avg_delta": round(float(random_delta), 6),
-                "advantage": round(float(advantage), 6),
-            },
-            handle,
-            indent=2,
-        )
+        json.dump(payload, handle, indent=2)
     print("  Results saved to eval/results.json")
+    return payload
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", type=int, default=10)
+    parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--tier", type=int, default=1, choices=[1, 2, 3])
     parser.add_argument("--steps", type=int, default=5)
+    parser.add_argument("--agent-mode", type=str, default="heuristic", choices=["heuristic", "grpo"])
+    parser.add_argument("--model-path", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=7)
     args = parser.parse_args()
-    evaluate(n_episodes=args.episodes, tier=args.tier, max_steps=args.steps)
+
+    try:
+        evaluate(
+            n_episodes=args.episodes,
+            tier=args.tier,
+            max_steps=args.steps,
+            agent_mode=args.agent_mode,
+            model_path=args.model_path,
+            seed=args.seed,
+        )
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc))

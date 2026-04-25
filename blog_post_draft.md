@@ -1,87 +1,125 @@
 ---
-title: "DataForge Arena: Teaching LLMs to Fix Broken Enterprise Data with Adversarial RL"
+title: "DataForge Arena: An OpenEnv Benchmark for Enterprise Data Repair"
 authors:
   - user: Vivek567
 ---
 
-**Built for the [Meta PyTorch + HuggingFace OpenEnv Hackathon 2026](https://pytorch.org/event/openenv-ai-hackathon/)**  
-**Theme: 3.1 World Modeling — Multi-App RL Environment for Enterprise Workflows (Scaler AI Labs)**
+Built for the [Meta x PyTorch x Hugging Face OpenEnv Hackathon 2026](https://pytorch.org/event/openenv-ai-hackathon/)
 
-## The $12.9 Million Problem
+Theme: World Modeling for enterprise workflows
 
-**$12.9 million per year.** That's what poor data quality costs the average organization, according to Gartner. Every enterprise on earth has the exact same story: corrupted fields, broken foreign keys, phantom duplicates, and inconsistent date formats. Today, these are caught by brittle regex pipelines that shatter the moment the upstream schema changes. 
+## The problem
 
-LLMs can write Python code, pass the bar exam, and generate beautiful artwork. But ask a state-of-the-art model to look at a corrupted patient record with a null `age` field, a swapped `department_id`, and a duplicated row with a mutated email address — and it hallucinates. It picks the wrong tool. It doesn't even notice the duplicate.
+Most enterprise AI demos quietly assume the data is already clean.
 
-**No open-source benchmark exists to train this specific skill.** Until now.
+Real workflows are less forgiving. A customer row has a missing value. A financial table has a type mismatch. A duplicated healthcare record looks almost right but contains one mutated field. The agent cannot solve that by sounding confident. It has to inspect the state, choose a tool, and make the table measurably better.
 
-## Introducing DataForge Arena
+That is why I built **DataForge Arena**: a compact OpenEnv environment where data-repair agents learn by acting inside an adversarial tabular world.
 
-DataForge Arena is an enterprise-grade, adversarial Reinforcement Learning environment built on **PyTorch**, **TRL**, and **OpenEnv**. It features two agents locked in an infinite, self-improving curriculum.
+## The core idea
 
-### The World Modeling Framing
+DataForge Arena turns data cleaning into a world-modeling task.
 
-To solve data corruption, an agent must build an internal model of what clean data looks like versus what it observes. This is the essence of **World Modeling**.
-* It must model tool-effect relationships (`IMPUTE_MEDIAN` on a null numeric column restores the statistical distribution).
-* It must model adversarial dynamics (our Corruptor escalates its tactics as the Surgeon improves).
-* It must model multi-schema environments (reasoning across healthcare and financial datasets).
+At every step, the agent receives a structured observation containing schema information, sample rows, and corruption context. It must emit a JSON repair action: which tool to use, which column to target, which row to touch, and why. The environment applies that action and computes reward from the actual state delta.
 
-This is a highly structured world with strict rules, complex states, distinct tools, and mathematical consequences — exactly the domain World Modeling RL targets.
+The reward is grounded. The main signal is `accuracy_delta`, not stylistic quality or self-evaluation.
 
-## System Architecture
+## How the environment works
 
-Our environment consists of two primary actors:
+The system has four moving pieces:
 
-1. **The CORRUPTOR (Rule-based, 3 Tiers):** A dynamic difficulty engine that injects realistic errors into pristine data. It monitors the agent's rolling average reward and automatically unlocks harder difficulty tiers when the agent proves competent.
-2. **The SURGEON (Qwen 2.5 1.5B + LoRA):** The agent trained via GRPO to diagnose the corruption and select the mathematically optimal repair tool from its arsenal.
+- **OpenEnv environment:** exposes `reset()` and `step()` around a tabular repair world.
+- **Adversarial corruptor:** injects solvable corruptions across three tiers, including nulls, type errors, format issues, foreign-key inconsistencies, and duplicate-row mutations.
+- **Repair action space:** gives the surgeon explicit tools such as imputation, format correction, row deletion, flagging, and no-op.
+- **Reward computer:** measures whether the table moved closer to ground truth after the action.
 
-### The Adversarial Curriculum
+That gives the agent a real feedback loop:
 
-| Tier | Epochs | What the Corruptor Does | What the Surgeon Must Learn |
-|------|--------|------------------------|---------------------------|
-| **1** | 0–29 | Single null injection, type errors (`ERR_42`) | Basic imputation, type detection |
-| **2** | 30–69 | Null clusters, date format swaps, out-of-range bounds | Pattern recognition, multi-cell correlation |
-| **3** | 70+ | Foreign key violations, duplicate rows with mutation | Relational reasoning, merge/delete decisions |
+1. Observe corrupted state.
+2. Predict which repair tool will improve the table.
+3. Act through a constrained JSON action.
+4. Receive reward from the resulting state transition.
+5. Face harder corruption as curriculum pressure increases.
 
-### 6-Signal Reward Computer
+## Where GRPO fits
 
-Instead of using a slow, expensive "LLM-as-a-judge" to evaluate repairs, DataForge uses a deterministic 6-signal reward computer. This allows us to train at 45 seconds per step on a standard T4 GPU instead of 5 minutes.
-* **Accuracy Delta:** Did the repair actually move the dataset closer to the ground truth?
-* **Tool Logic:** Was the mathematically correct tool chosen for the detected error?
-* **Anti-Hack Penalty:** Massive negative rewards for gaming the system (e.g., trying to soft-delete every row to bypass errors).
+The training path uses TRL GRPO to optimize a language-model surgeon over structured repair actions. The prompt asks for valid JSON only, the parser hardens the boundary between generated text and environment actions, and the reward loop evaluates the actual outcome of each tool call.
 
-## 🚀 Results that Matter
+The intent is not to reward fluent explanations. The intent is to reward a policy that learns the mechanics of a small enterprise data world.
 
-We evaluate success in enterprise value, not just abstract reward points. Over an 80-step training run using TRL's `GRPOTrainer`:
+## What the public repo proves today
 
-| Metric | Performance |
-|--------|-------------|
-| **Difficulty progression** | **Tier 1 → 2 → 3** (DDA unlocked all tiers over 75 steps) |
-| **Format error elimination** | **100%** (CORRECT_FORMAT exact restoration) |
-| **JSON Parse Reliability** | 93% success rate via robust 3-strategy fallback parsing |
-| **Test Suite Stability** | 28/28 Unit & Integration tests passing (100% Coverage) |
+This repo is evidence-first. The current committed artifacts show:
 
-The 93% JSON parse success rate is our most significant signal. Under RL pressure, the model is simultaneously learning *what to do* AND *how to perfectly format its output*.
+| Evidence | Current value |
+|----------|---------------|
+| OpenEnv-compatible environment | `reset`, `step`, FastAPI endpoints |
+| Committed evaluation mode | `heuristic` |
+| Heuristic surgeon avg accuracy delta | `+0.0010` |
+| Random baseline avg accuracy delta | `-0.0043` |
+| Heuristic advantage | `+0.0053` (`+0.53 pp`) |
+| Logged GRPO curriculum tiers | `1, 2, 3` |
+| Mean logged parse success | `94.53%` |
+| Test suite | `43 passed` via `python -m pytest -q` |
 
-## Try the Live Inference Demo
+One important note: the public repo does not currently ship a local trained checkpoint at `outputs/dataforge-surgeon`. Because of that, the committed evaluation artifact is explicitly heuristic evidence. The demo and evaluation harness expose live GRPO mode only when that checkpoint exists locally.
 
-We built a "Billion-Dollar" Gradio frontend that runs actual live LLM inference, allowing you to pit our trained Surgeon against a brutal Naive Baseline on Tier 3 adversarial data.
+## Final Colab placeholders
+
+Before publishing the final submission, replace these placeholders with the final training numbers:
+
+| Placeholder | Replace with |
+|-------------|--------------|
+| `[PLACEHOLDER: final GRPO eval surgeon_avg_accuracy_delta]` | Final trained-checkpoint evaluation value |
+| `[PLACEHOLDER: final GRPO eval random_avg_accuracy_delta]` | Random baseline from the same run |
+| `[PLACEHOLDER: final GRPO advantage in percentage points]` | Final trained-checkpoint advantage |
+| `[PLACEHOLDER: final training steps]` | Final Colab step count |
+| `[PLACEHOLDER: final GPU/runtime]` | Hardware and wall-clock runtime |
+| `[PLACEHOLDER: final checkpoint or Hub URL]` | Published checkpoint or artifact link |
+
+## The demo experience
+
+The Gradio demo is designed for judge visibility.
+
+It lets a judge generate a Tier 1 scenario or a harder Tier 3 adversarial scenario, then run one of the available execution paths:
+
+- `Naive Baseline`
+- `Heuristic Surgeon`
+- `Live GRPO Model`, only when a local checkpoint exists
+
+The UI shows mode provenance, dataset health before and after repair, accuracy delta, cumulative reward, and the action trajectory. The goal is simple: make every claim inspectable on screen.
+
+## Why this matters
+
+Enterprise AI needs agents that can act in imperfect systems without hand-waving away the mess. DataForge Arena is small enough to run, inspect, and test, but structured enough to capture the key difficulty: actions change the world, and the world should grade those actions.
+
+That makes it a strong OpenEnv benchmark for data quality repair and a practical foundation for training safer tool-using agents.
+
+## Reproduce it
 
 ```bash
 git clone https://github.com/vivekyarra/dataforge-arena.git
-cd dataforge-arena && pip install -r requirements.txt
+cd dataforge-arena
+pip install -r requirements.txt
+
 python training/generate_data.py
-python demo/app.py           # Launch Live Inference UI
+python -m pytest -q
+python eval/evaluate.py --agent-mode heuristic --episodes 20 --tier 1 --steps 5 --seed 7
+python demo/app.py
+```
+
+After training and saving a checkpoint:
+
+```bash
+python eval/evaluate.py --agent-mode grpo --model-path outputs/dataforge-surgeon
 ```
 
 ## Links
 
 | Resource | URL |
 |----------|-----|
-| 🤗 **Live HF Space** | https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env |
-| 📓 **Colab Notebook** | DataForge_Arena_Colab.ipynb |
-| 💻 **GitHub** | https://github.com/vivekyarra/dataforge-arena |
+| Live HF Space | https://huggingface.co/spaces/Vivek567/enterprise-data-cleaning-env |
+| Colab Notebook | DataForge_Arena_Colab.ipynb |
+| GitHub | https://github.com/vivekyarra/dataforge-arena |
 
----
-
-*Built with PyTorch, TRL, OpenEnv, and HuggingFace.*
+Built with PyTorch, TRL GRPO, OpenEnv, Hugging Face, and a stubborn belief that agents should be graded by what they actually fix.

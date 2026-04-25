@@ -1,9 +1,13 @@
+import logging
 import random
 import re
 from collections import deque
 
 import numpy as np
 import pandas as pd
+
+
+logger = logging.getLogger(__name__)
 
 
 class Corruptor:
@@ -43,9 +47,11 @@ class Corruptor:
             reward_ok = self._rolling_avg() >= self.TIER_REWARD_GATES[candidate_tier]
             if epoch_ok and reward_ok:
                 self._unlocked_tier = candidate_tier
-                print(
-                    f"[CORRUPTOR] Tier {candidate_tier} UNLOCKED - "
-                    f"epoch={self._epoch}, rolling_avg={self._rolling_avg():.3f}"
+                logger.info(
+                    "Corruptor tier %s unlocked: epoch=%s, rolling_avg=%.3f",
+                    candidate_tier,
+                    self._epoch,
+                    self._rolling_avg(),
                 )
 
     def current_tier(self) -> int:
@@ -70,7 +76,7 @@ class Corruptor:
             if valid:
                 return dirty, clean_df.copy(), metadata
 
-        print("[CORRUPTOR] Retry limit - falling back to tier 1")
+        logger.warning("Corruptor retry limit reached; falling back to tier 1")
         dirty, metadata = self._corrupt_tier1(clean_df.copy())
         return dirty, clean_df.copy(), metadata
 
