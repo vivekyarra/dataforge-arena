@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements-server.txt
 
 COPY environment ./environment
 COPY data ./data
+COPY demo ./demo
 COPY eval ./eval
 COPY training ./training
 COPY openenv.yaml ./openenv.yaml
@@ -26,7 +27,10 @@ USER appuser
 
 EXPOSE 7860
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:7860/health || exit 1
+ENV GRADIO_SERVER_NAME=0.0.0.0 \
+    GRADIO_SERVER_PORT=7860
 
-CMD ["uvicorn", "environment.server:app", "--host", "0.0.0.0", "--port", "7860"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:7860/ || exit 1
+
+CMD ["python", "demo/app.py"]
