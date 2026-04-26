@@ -20,6 +20,7 @@ build/
 *.csv.bak
 wandb/
 logs/demo_server.*.log
+logs/debug_components.csv
 
 # System
 .DS_Store
