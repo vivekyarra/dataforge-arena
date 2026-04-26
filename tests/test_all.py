@@ -139,22 +139,27 @@ def test_accuracy_delta_positive_on_fix(clean_df):
     assert curr_acc > prev_acc
 
 
-def test_constraint_alignment_fires_on_null_impute():
+def test_constraint_alignment_fires_on_correct_null_impute():
     rc = RewardComputer()
     schema = {"age": {"type": "int", "range": [0, 120]}}
     state = pd.DataFrame({"age": [None, 45, 60]})
-    action = SurgeonAction(reasoning="null age needs imputation", tool_id=0, column=0, row_id=0)
+    action = SurgeonAction(
+        reasoning="null age needs median imputation",
+        tool_id=0,
+        column=0,
+        row_id=0,
+    )
     score = rc._score_constraint_alignment(action, state, state, schema)
-    assert score > 0, f"Expected positive score for correct null imputation, got {score}"
+    assert score > 0, f"Expected positive score, got {score}"
 
 
-def test_constraint_alignment_penalises_wrong_tool_on_null():
+def test_constraint_alignment_penalises_correct_format_on_null():
     rc = RewardComputer()
     schema = {"age": {"type": "int", "range": [0, 120]}}
     state = pd.DataFrame({"age": [None, 45, 60]})
     action = SurgeonAction(reasoning="fix format", tool_id=3, column=0, row_id=0)
     score = rc._score_constraint_alignment(action, state, state, schema)
-    assert score < 0, f"Expected negative score for CORRECT_FORMAT on null, got {score}"
+    assert score < 0, f"Expected negative score for wrong tool, got {score}"
 
 
 

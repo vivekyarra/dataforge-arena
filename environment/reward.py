@@ -170,7 +170,7 @@ class RewardComputer:
                 return 0.5
             return 0.0
         except Exception as e:
-            logger.warning("constraint_alignment error: %s | action=%s", e, action)
+            logger.warning("reward error in constraint_alignment: %s | action=%s", e, action)
             return 0.0
 
     def _detect_constraint_violation(self, cell_val, col_name, col_schema, state, row_id):
@@ -250,7 +250,7 @@ class RewardComputer:
                 return -0.5
             return 0.0
         except Exception as e:
-            logger.warning("schema_alignment error: %s | action=%s", e, action)
+            logger.warning("reward error in schema_alignment: %s | action=%s", e, action)
             return 0.0
 
     def _score_outlier_targeting(self, action, state, ground_truth, previous_state) -> float:
@@ -280,7 +280,7 @@ class RewardComputer:
                 return -0.3
             return 0.0
         except Exception as e:
-            logger.warning("outlier_targeting error: %s | action=%s", e, action)
+            logger.warning("reward error in outlier_targeting: %s | action=%s", e, action)
             return 0.0
 
     def _score_causal_reasoning(self, action, state, schema) -> float:

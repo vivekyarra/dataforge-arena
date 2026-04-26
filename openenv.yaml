@@ -1,8 +1,5 @@
-# DataForge Arena - OpenEnv Configuration
-# https://huggingface.co/docs/openenv
-
 name: dataforge-arena
-version: "1.0.0"
+version: "1.1.0"
 description: >
   DataForge Arena is an OpenEnv benchmark for autonomous data cleaning agents.
   The agent must maintain a causal world model of structured enterprise data:
@@ -84,27 +81,28 @@ schemas:
 
 corruption:
   tier_1:
-    - null_injection
-    - type_mismatch
-    - range_violation
-    - enum_violation
+    - inject_null_single
+    - inject_type_error
+    - enum_substitution
   tier_2:
-    - fk_mismatch
+    - inject_null_cluster
+    - swap_date_format
+    - inject_out_of_range_age
     - semantic_temporal_drift
-    - currency_amount_inconsistency
+    - currency_unit_mismatch
   tier_3:
     - break_foreign_key
     - duplicate_row_mutate
-  escalation: rolling_6step_avg_reward_gate_with_step_gate_and_deescalation
+  escalation: rolling_5step_avg_reward_gate_with_step_gate_and_deescalation
   escalation_details:
     tier_1_to_2:
       reward_threshold: 2.0
-      consecutive_steps: 6
-      min_training_step: 80
+      consecutive_steps: 5
+      min_training_step: 40
     tier_2_to_3:
       reward_threshold: 3.0
-      consecutive_steps: 6
-      min_training_step: 180
+      consecutive_steps: 5
+      min_training_step: 120
     deescalation:
       threshold: 1.0
       consecutive_steps: 3
@@ -143,9 +141,11 @@ evaluation:
     - improvement_vs_random_pct
 
 metadata:
-  authors: [Vivek567]
+  authors: ["Vivek567"]
   license: MIT
   hackathon: "Meta x PyTorch x Hugging Face x Scaler OpenEnv Hackathon 2026"
   theme: "3.1 World Modeling / Professional Tasks - Causal Schema Reasoning Agent"
   repository: https://github.com/vivekyarra/dataforge-arena
   space: https://huggingface.co/spaces/Vivek567/dataforge-arena
+  video_url: ""
+  blog_url: ""

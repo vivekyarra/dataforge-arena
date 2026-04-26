@@ -331,6 +331,11 @@ class Corruptor:
                 return False, "currency_unit_mismatch requires currency+amount columns"
             return True, "ok"
 
+        # Tier-1 corruptions are single-row, directly localizable failures and
+        # should always survive the generic null-rate heuristics below.
+        if tool in {"inject_null_single", "inject_type_error", "enum_substitution"}:
+            return True, "ok"
+
         for col in dirty_df.columns:
             null_rate = dirty_df[col].isna().mean()
             if null_rate > 0.70:

@@ -1,6 +1,6 @@
 ---
 title: DataForge Arena
-emoji: "🔬"
+emoji: ":microscope:"
 colorFrom: blue
 colorTo: green
 sdk: docker
@@ -11,297 +11,165 @@ pinned: true
 ## Changelog
 
 ### v1.1 (post-audit fixes)
-- Fixed silent exception swallower in `_score_constraint_alignment` - surfaces actual errors
-- Changed `null + CORRECT_FORMAT` reward from `0.0` to `-1.5` - creates gradient signal to escape tool collapse
-- Added inline anti-collapse penalty for `null + CORRECT_FORMAT` combinations
-- Reduced tier escalation gates (step `80 -> 40`, `180 -> 120`) for 300-step runs
-- Fixed README: heuristic win rate corrected from 50% to 10%
-- Fixed `openenv.yaml` max_steps to match `env.py` (`5 -> 20`)
-- Fixed logger column mismatch (`shaped_reward_total -> reasoning_quality + parse_bonus`)
+- Fixed the Colab notebook import cell to use live schema exports and removed a stale observation print.
+- Logged reward exceptions in `constraint_alignment`, `schema_alignment`, and `outlier_targeting`.
+- Changed `null + CORRECT_FORMAT` from zero reward to `-1.5` to break tool-collapse.
+- Preserved positive null-imputation rewards by keeping the impute checks ahead of format penalties.
+- Added inline anti-collapse penalty for null-cell `CORRECT_FORMAT` actions.
+- Lowered corruptor escalation gates to `40/120` with `5`-step escalation and `3`-step de-escalation.
+- Aligned `openenv.yaml`, `CITATION.cff`, Docker, and README evidence with the current code and artifacts.
 
 ### v1.0 (hackathon submission)
-- Initial submission with GRPO training on Qwen 2.5 1.5B
-- 9.8x less destructive than random baseline
-- 100% parse success sustained over 300 steps
+- Initial GRPO environment and training run on Qwen 2.5 1.5B.
+- 9.8x less destructive than random baseline in committed GRPO evaluation.
+- 100% parse success sustained in the committed training log.
 
-<div align="center">
+# DataForge Arena
 
-# 🔬 DataForge Arena - Autonomous Data Cleaning Agent
-
-### **Enterprise data is broken 34% of the time. DataForge Arena trains an LLM to fix it by reasoning about schema constraints, detecting statistical outliers, and explaining every repair decision in natural language.**
+Enterprise data repair as an OpenEnv world-modeling benchmark. The agent observes a corrupted table, infers why a cell is wrong, picks a repair tool, and earns reward only when the repair improves ground-truth accuracy.
 
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compliant-10b981?style=for-the-badge)](https://github.com/huggingface/openenv)
 [![TRL GRPO](https://img.shields.io/badge/TRL-GRPO_Trained-f59e0b?style=for-the-badge)](https://huggingface.co/docs/trl/main/en/grpo)
 [![Tests](https://img.shields.io/badge/Tests-127_Passing-10b981?style=for-the-badge)](./tests)
-[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](./LICENSE)
-[![Theme](https://img.shields.io/badge/Theme-3.1_World_Modeling-8b5cf6?style=for-the-badge)](#theme-alignment)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/vivekyarra/dataforge-arena/blob/master/DataForge_Arena_Colab.ipynb)
 
-**[🚀 Live HF Space](https://huggingface.co/spaces/Vivek567/dataforge-arena)** · **[🧪 Browser Demo](./artifacts/browser_simulator.html)** · **[📓 Colab Notebook](./DataForge_Arena_Colab.ipynb)** · **[📁 GitHub](https://github.com/vivekyarra/dataforge-arena)**
+[GitHub](https://github.com/vivekyarra/dataforge-arena) · [HF Space](https://huggingface.co/spaces/Vivek567/dataforge-arena) · [Browser Demo](./artifacts/browser_simulator.html) · [Colab Notebook](./DataForge_Arena_Colab.ipynb)
 
-*Built for the Meta x PyTorch x Hugging Face x Scaler OpenEnv Hackathon 2026*
+Built for the Meta x PyTorch x Hugging Face x Scaler OpenEnv Hackathon 2026, Theme 3.1: World Modeling.
 
-</div>
+## The problem
 
----
+LLMs can read tabular data, but that is not the same thing as understanding it. A model that sees `age=145`, `birth_year=1979`, and `department_id=500` still needs a causal model of range constraints, temporal consistency, and foreign-key structure before it can repair the table correctly.
 
-> **DataForge Arena is an RL training environment where the agent must maintain a persistent causal world model of structured data to earn reward. The agent does not just classify errors. It reasons about why a cell is wrong, selects the right repair tool from that causal understanding, and justifies the action in natural language. The verifier is pure mathematics: ground-truth accuracy delta. No LLM judge. No human labeler. The world model is the reward signal.**
+DataForge Arena turns that into an RL task. The reward is grounded in cell-level accuracy delta against clean data, and the shaped signals only pay out when the policy identifies the right violation type, chooses the right tool for the column, and targets a real anomaly. There is no LLM judge in the loop.
 
----
+## Environment
 
-## 🧠 The World Modeling Problem
+The benchmark ships with two schemas:
+- `healthcare`
+- `financial`
 
-Current LLMs can read tabular data. They cannot reliably reason about it.
+The corruptor injects seven learnable corruption types across three tiers:
+- Tier 1: `inject_null_single`, `inject_type_error`, `enum_substitution`
+- Tier 2: `inject_null_cluster`, `swap_date_format`, `inject_out_of_range_age`, `semantic_temporal_drift`, `currency_unit_mismatch`
+- Tier 3: `break_foreign_key`, `duplicate_row_mutate`
 
-They do not know that `age=145` violates a schema range. They do not know that `department_id=500` breaks a foreign key constraint. They do not infer that an `amount` value 83x the column mean is probably a currency conversion error rather than a real transaction.
+The agent acts in an 8-tool repair space:
+- `IMPUTE_MEDIAN`
+- `IMPUTE_MODE`
+- `IMPUTE_FORWARD_FILL`
+- `CORRECT_FORMAT`
+- `DELETE_ROW`
+- `MERGE_DUPLICATE`
+- `FLAG_UNCERTAIN`
+- `NO_OP`
 
-This gap is not a knowledge problem. It is a **world model problem**. An LLM without a persistent causal model of a schema cannot reliably repair data from that schema, because every cell exists in isolation rather than within a structured relational context.
+## Reward design
 
-DataForge Arena trains exactly this capability: a schema-grounded causal world model learned through RL against ground-truth-verifiable rewards. The agent must internalize the type system, constraints, distributions, and relational dependencies of the data before it can earn positive reward.
+The reward function combines one primary signal with six shaped signals:
 
----
+| Signal | Meaning | Max |
+|---|---|---:|
+| `accuracy_delta x 50` | Ground-truth improvement | bounded |
+| `constraint_alignment` | Correct violation-type reasoning | +3.0 |
+| `schema_alignment` | Tool matches column type | +2.0 |
+| `outlier_targeting` | Cell is a real anomaly | +0.5 |
+| `reasoning_quality` | Justification names the causal chain | +1.5 |
+| `parse_bonus` | Valid structured action | +0.5 |
+| `anti_hack` | Penalizes reward hacking | -5.0 |
 
-## 📐 What the Agent Internally Models
+Constraint alignment carries the largest shaped reward because the environment is trying to train causal diagnosis, not just syntactic cleanup.
 
-- **Type system:** each column's declared type (`int`, `float`, `str`, `email`, `date`) and its valid value range.
-- **Nullable constraints:** a null in a required field is a different violation class from an out-of-range value.
-- **Enum domains:** closed categorical sets such as `currency in {USD, EUR, GBP, INR}` and `status in {completed, pending, failed}`.
-- **Relational FK integrity:** `department_id <-> department_name` must stay internally consistent.
-- **Temporal causal inference:** `birth_year=1979` implies `age` should be about `45` in 2024.
-- **Statistical distribution:** values more than `3` standard deviations from the mean are treated as outliers.
-- **Repair strategy mapping:** each violation type has a canonical correct tool, and the reward function penalizes tool-violation mismatches.
+## Results
 
----
+### Committed evidence
 
-## ⚡ The Causal Reasoning Layer
+All values below are copied from committed artifacts.
 
-The difference between lookup behavior and world modeling is visible in the agent's output.
+| Artifact | Metric | Value |
+|---|---|---:|
+| `eval/results.json` | GRPO average accuracy delta | `-0.0005` |
+| `eval/results.json` | Random average accuracy delta | `-0.0049` |
+| `eval/results.json` | GRPO advantage over random | `+0.0044` |
+| `eval/results.json` | GRPO win rate | `0.05` |
+| `eval/results.json` | GRPO destruction ratio | `0.102` |
+| `eval/results.json` | GRPO improvement vs random | `89.8` |
+| `eval/heuristic_results.json` | Heuristic average accuracy delta | `-0.000138` |
+| `eval/heuristic_results.json` | Random average accuracy delta | `-0.009325` |
+| `eval/heuristic_results.json` | Heuristic advantage over random | `+0.009188` |
+| `eval/heuristic_results.json` | Heuristic win rate | `0.1` |
+| `eval/heuristic_results.json` | Constraint alignment rate | `0.0875` |
+| `eval/heuristic_results.json` | Schema alignment rate | `0.105` |
+| `eval/heuristic_results.json` | Heuristic destruction ratio | `0.0147` |
+| `logs/training_log.csv` | First reward | `1.925` |
+| `logs/training_log.csv` | Final reward | `4.475` |
+| `logs/training_log.csv` | Best reward | `6.95` |
+| `logs/training_log.csv` | Parse success mean | `1.0` |
+| `python -m pytest tests/ -x -q` | Test suite | `127 passed` |
 
-**Before training (no world model):**
-```json
-{"reasoning": "fix", "tool_id": 0, "column": 0, "row_id": 0}
-```
+The committed training summary shows `+132%` total reward improvement from `1.925` to `4.475`. Note: this increase is driven by parse shaping and contextual bonuses; constraint-grounded signals are pending a full rerun after the v1.1 reward fixes.
 
-Wrong cell. Wrong tool. No justification. The agent is guessing.
+### Judge evidence
 
-**After GRPO training (world model acquired):**
-```json
-// Representative output - illustrative of learned reasoning format
-// (actual model output varies by episode; parse success rate: 100%)
-{
-  "reasoning": "age 145 exceeds schema max 120; birth_year 1979 implies age ~45 in 2024; z-score 5.7 confirms outlier",
-  "tool_id": 3,
-  "column": 2,
-  "row_id": 7
-}
-```
+The current committed GRPO checkpoint is still early. The honest story is:
+- it is 9.8x less destructive than random (`destruction_ratio = 0.102`)
+- it achieves a `5%` win rate on the committed tier-1 evaluation
+- it maintains `100%` parse success across the committed training log
 
-Correct cell. Correct tool. Causal justification referencing schema range, temporal inference, and statistical distribution simultaneously.
+What the training log does support is structured-output stability and total reward improvement. What it does not yet support is a strong committed `constraint_alignment` curve; that signal path is now hardened in code and ready for the next training run.
 
-This is the core training signal: `constraint_alignment` only fires when the identified violation type is right, `schema_alignment` only fires when the tool matches the column's type profile, and `outlier_targeting` only fires when the selected cell is a genuine statistical anomaly. The world model is not a side effect of training. **It is the only way to earn reward.**
+### Schema generalization
 
----
+The committed heuristic evaluation runs with `schema = "both"` and includes per-schema breakdowns for healthcare and financial tables in `eval/heuristic_results.json`.
 
-## 🎯 Reward Architecture
+## Why this fits Theme 3.1
 
-| Signal | What It Measures | Max Value |
-|--------|------------------|-----------|
-| `accuracy_delta x 50` | Ground-truth cell-level accuracy improvement | bounded |
-| `constraint_alignment` | Did the agent correctly identify the violation type? | +3.0 |
-| `schema_alignment` | Did the agent choose the right tool for the column type? | +2.0 |
-| `outlier_targeting` | Did the agent target a true statistical outlier? | +0.5 |
-| `reasoning_quality` | Does reasoning reference the column and violation chain? | +1.5 |
-| `parse_bonus` | Clean valid JSON action with meaningful reasoning | +0.5 |
-| `anti_hack` | Prevents mass-deletion reward hacking | -5.0 |
+This environment is about world models, not surface formatting. To earn reward, the agent must maintain an internal model of:
+- column types and nullable constraints
+- enum domains
+- foreign-key consistency
+- temporal implications such as `birth_year -> age`
+- statistical distributions and outliers
 
-**Total reward range: `[-5.0, +8.0]`**
+That is exactly the kind of persistent causal reasoning Theme 3.1 asks for.
 
-All shaped signals are computed mathematically against ground truth or schema metadata. There is no LLM judge and no human annotation in the reward loop.
-
----
-
-## 🦠 Corruption Taxonomy
-
-The adversarial corruptor injects real-world data failures across three difficulty tiers.
-
-| Type | Tier | Description | Example |
-|------|------|-------------|---------|
-| `null_injection` | 1 | Required field set to null | `age = NaN` |
-| `type_mismatch` | 1 | Value violates the declared type | `age = "ERR_42"` |
-| `range_violation` | 1 | Value exceeds bounds | `age = 145` when schema max is `120` |
-| `enum_violation` | 1 | Out-of-vocabulary categorical value | `currency = "XYZ"` |
-| `semantic_temporal_drift` | 2 | Cross-column temporal inconsistency | `birth_year=1979` with `age=23` |
-| `currency_amount_inconsistency` | 2 | Statistical outlier from the distribution | `amount=840000` when mean is `10000` |
-| `fk_mismatch` | 3 | Referential integrity is broken | `department_id=500` with wrong paired name |
-| `duplicate_row_mutate` | 3 | Near-duplicate row with a corrupted cell | duplicated patient row with one null |
-
-Tier escalation is adaptive and calibrated to the observed reward range of the shipped training run.
-
----
-
-## 📊 Results
-
-### Committed Evidence (all reproducible with one command)
-
-| Artifact | Metric | Value | Interpretation |
-|----------|--------|-------|----------------|
-| `eval/results.json` | GRPO advantage over random | **+0.44 pp** | Agent improves on random baseline |
-| `eval/results.json` | Destruction ratio | **0.102** | GRPO is **9.8x less destructive** than random |
-| `eval/results.json` | GRPO win rate | **5%** | First won episode at step 295 |
-| `eval/heuristic_results.json` | Heuristic constructive ratio | **~0.23** | Heuristic achieves positive accuracy delta |
-| `eval/heuristic_results.json` | Heuristic win rate | **10%** (random: 0%) | Proves environment is learnable |
-| `logs/training_log.csv` | Reward improvement | **+132%** (1.93 -> 4.47) | Measured first vs final step |
-| `logs/training_log.csv` | shaped_reward_total range | **0.75 -> 4.45** | Shaped signals firing throughout training |
-| `logs/training_log.csv` | Parse success | **100% sustained** | 295 steps of valid structured output |
-| `python -m pytest -q` | Test suite | **127 passed** | Production-grade environment |
-| `constraint_alignment` firing rate | **TBD - rerun required** | Blocked by tool collapse in initial run |
-
-### Training Curves
-
-The committed training log shows real shaped reward activity throughout training. `shaped_reward_total` stays non-zero across all logged rows, and the final training curve includes four non-empty panels: total reward, constraint alignment, reward distribution, and shaped reward total.
-
-**Judge Evidence:** the win rate improved to 5% and the GRPO agent is 9.8x less destructive than a random baseline at 300 steps on a T4. Constraint-alignment reward signals are correctly wired; achieving non-zero `constraint_alignment` requires resolving tool collapse (fixed in v1.1).
-
-### Schema Generalization
-
-The evaluation harness now supports `--schema healthcare`, `--schema financial`, and `--schema both`, and writes a `schema_breakdown` section into the committed result JSON so the healthcare and financial behaviors can be inspected independently.
-
----
-
-## 🏗️ Architecture
-
-```mermaid
-flowchart LR
-    subgraph OPENENV["DataForge Arena - OpenEnv Environment"]
-        C["Adversarial Corruptor\n3-tier curriculum\nnulls · type errors · range violations\nFK mismatches · temporal drift"]
-        E["Tabular World State\nhealthcare + financial schemas\nground truth tracking"]
-        O["Structured Observation\nschema · top corrupted rows\nviolation_type · target hint · stats"]
-        W["Causal Reasoning Layer\nschema constraints · FK map\ndistribution model · temporal rules"]
-        A["Surgeon Policy\nheuristic or GRPO checkpoint\nJSON action with justification"]
-        T["Repair Tool Space\nimpute_median · impute_mode\ncorrect_format · delete_row"]
-        R["Reward Computer\naccuracy_delta x 50\n+ constraint_alignment\n+ schema_alignment\n+ outlier_targeting\n+ reasoning_quality"]
-        C --> E --> O --> W --> A --> T --> E --> R --> A
-        R --> C
-    end
-    TRL["TRL GRPO Training\nQwen2.5 / Llama 3.2"] --> A
-```
-
----
-
-## 🏆 Why This Wins
-
-**1. Real problem, real stakes.** Bad data costs enterprises $12.9M per year on average. Autonomous data repair affects every organization running data pipelines. This is not a toy task.
-
-**2. Grounded, mathematical reward.** Accuracy delta against ground truth - plus 5 independently-verifiable schema-grounded signals - with zero LLM-as-judge in the reward loop. Every reward is reproducible with `python eval/evaluate.py`.
-
-**3. Genuine world modeling requirement.** FK integrity violations and temporal causal constraints cannot be resolved by cell-level lookup. The reward function enforces this: all five shaped signals must fire simultaneously to earn maximum reward, requiring the agent to maintain a relational model across the full schema.
-
-**4. Measured training improvement.** 300 steps of GRPO on a T4 produced:
-- Reward improvement: **+132%** (1.93 -> 4.47, smoothed)
-- Win rate improvement: **0% -> 5%** (first won episode earned)
-- GRPO agent: **9.8x less destructive** than random baseline
-- Parse success: **100% sustained** across all 295 logged steps
-
-Note: improvement is in total reward score, driven by parse shaping and contextual bonuses. Constraint-grounded signals (`constraint_alignment`, `schema_alignment`) will show stronger improvement with additional compute beyond the initial 300-step T4 run.
-
-**5. Multi-schema generalization.** The environment runs identical episodes against both healthcare and financial schemas - two different constraint taxonomies, two different corruption patterns - with a single agent and reward function.
-
-**6. Evidence-first.** Every metric has a committed JSON artifact. `python eval/evaluate.py` reproduces all evaluation runs. `python -m pytest -q` reproduces 127 tests.
-
-**7. Zero-setup judge demo.** The browser simulator runs the full RL loop in vanilla HTML/JS. Every line of logic is inspectable with no server, no Python, no GPU.
-
----
-
-## 🔌 OpenEnv API
+## OpenEnv API
 
 ```text
-GET  /health    -> environment status
-GET  /info      -> schema, tool space, difficulty tiers, reward signals
-POST /reset     -> new episode, body: {"tier": 1}
-POST /step      -> execute SurgeonAction, body: {"reasoning": "...", "tool_id": 3, "column": 2, "row_id": 7}
-GET  /metrics   -> committed training and evaluation evidence
-GET  /docs      -> FastAPI auto-generated documentation
+GET  /health
+GET  /info
+POST /reset
+POST /step
+GET  /metrics
+GET  /docs
 ```
 
-The `/metrics` endpoint exposes `eval/results.json`, `eval/heuristic_results.json`, and a summarized view of `logs/training_log.csv` so judges can verify the claims programmatically.
+The API server lives in [environment/server.py](/D:/dataforge-arena/environment/server.py).
 
----
-
-## 🚀 Quick Start
+## Quick start
 
 ```bash
 git clone https://github.com/vivekyarra/dataforge-arena.git
 cd dataforge-arena
 pip install -r requirements.txt
-
-# Verify everything
-python -m pytest -q
-
-# Rebuild committed training evidence
-python scripts/fix_training_log.py
-python eval/multi_step_curve.py
-python scripts/plot_training.py
-
-# Reproduce heuristic evidence across both schemas
-python eval/evaluate.py --agent-mode heuristic --episodes 20 --schema both --steps 10 --seed 7
-
-# Reproduce GRPO evidence across both schemas
-python eval/evaluate.py --agent-mode grpo --episodes 20 --schema both --steps 10 --seed 7
-
-# Launch the judge-facing API
+python -m pytest tests/ -x -q
 python environment/server.py
 ```
 
-**Zero-setup:** open [`artifacts/browser_simulator.html`](./artifacts/browser_simulator.html) directly in a browser.
+For training on Colab, open [DataForge_Arena_Colab.ipynb](/D:/dataforge-arena/DataForge_Arena_Colab.ipynb).
 
-**Colab GPU training:** open [`DataForge_Arena_Colab.ipynb`](./DataForge_Arena_Colab.ipynb).
+## Repository map
 
----
+| Path | Purpose |
+|---|---|
+| [`environment/`](./environment) | Env, corruptor, reward, tools, FastAPI server |
+| [`training/`](./training) | Prompting, parser, model config, GRPO support code |
+| [`eval/`](./eval) | Evaluation harness and committed result artifacts |
+| [`demo/`](./demo) | Gradio demo implementation |
+| [`logs/`](./logs) | Training CSVs, plots, and summaries |
+| [`tests/`](./tests) | Regression suite |
 
-## 📁 Repository Map
+## Citation
 
-| Directory | What's Inside |
-|-----------|----------------|
-| [`environment/`](./environment) | OpenEnv env, adversarial corruptor, reward computer, tool space, FastAPI server |
-| [`training/`](./training) | GRPO training loop, prompt construction, parser, model config |
-| [`eval/`](./eval) | Heuristic + GRPO evaluation harness, result artifacts, multi-step curve script |
-| [`demo/`](./demo) | Gradio demo paths and local visualization logic |
-| [`artifacts/`](./artifacts) | Standalone browser simulator |
-| [`logs/`](./logs) | Training CSV, plots, summaries |
-| [`tests/`](./tests) | 127 tests across parser, reward bounds, tools, schema integrity, and solvability gates |
-
----
-
-## 🎯 Theme Alignment
-
-**Theme 3.1 - World Modeling / Professional Tasks**
-
-DataForge Arena directly instantiates the world modeling theme: the agent must build and maintain an internal causal model of a structured environment and use that model to choose actions that improve a verifiable outcome. Constraint alignment, schema alignment, outlier targeting, and causal reasoning rewards together make the task difficult to game without genuine schema-grounded reasoning.
-
-The professional task domain, enterprise data repair, grounds that abstract capability in a workflow with real operational cost.
-
----
-
-## 📈 Committed Evidence Index
-
-| Artifact | Claim | Value |
-|----------|-------|-------|
-| [`eval/results.json`](./eval/results.json) | GRPO destruction ratio | `0.102` |
-| [`eval/results.json`](./eval/results.json) | GRPO advantage over random | `+0.0044` accuracy delta |
-| [`eval/results.json`](./eval/results.json) | GRPO win rate | `5%` |
-| [`eval/heuristic_results.json`](./eval/heuristic_results.json) | Heuristic constructive ratio | `~0.23` |
-| [`logs/training_log.csv`](./logs/training_log.csv) | shaped reward evidence | `0.75 -> 4.45` |
-| [`logs/training_curve.png`](./logs/training_curve.png) | backward-compatible plot link | generated by `scripts/plot_training.py` |
-| [`logs/training_curves_final.png`](./logs/training_curves_final.png) | final 4-panel training plot | generated by `scripts/plot_training.py` |
-| [`logs/multi_step_accuracy.png`](./logs/multi_step_accuracy.png) | single-episode recovery curve | generated by `eval/multi_step_curve.py` |
-| [`environment/server.py`](./environment/server.py) | OpenEnv API | `/reset` `/step` `/metrics` `/health` `/info` `/docs` |
-
----
-
-<div align="center">
-
-**Built for the Meta x PyTorch x Hugging Face OpenEnv Hackathon 2026 · MIT License**
-
-*The environment trains agents to fix what humans overlook by teaching them to understand what the data means, not just what it contains.*
-
-</div>
+If you use the environment in research or demos, see [CITATION.cff](/D:/dataforge-arena/CITATION.cff).
