@@ -1,5 +1,5 @@
 name: dataforge-arena
-version: "1.1.0"
+version: "1.2.0"
 description: >
   DataForge Arena is an OpenEnv benchmark for autonomous data cleaning agents.
   The agent must maintain a causal world model of structured enterprise data:
@@ -113,6 +113,15 @@ corruption:
 training:
   algorithm: GRPO
   framework: TRL
+  latest_run:
+    total_steps: 300
+    batch_size: 1
+    gradient_accumulation: 4
+    precision: fp16
+    baseline_reward: 2.2
+    peak_reward: 8.25
+    stable_band: "5.0-7.5"
+    parse_success: 1.0
   base_models:
     - unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit
     - unsloth/Llama-3.2-3B-Instruct-bnb-4bit

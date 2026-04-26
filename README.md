@@ -110,6 +110,34 @@ All values below are copied from committed artifacts.
 
 The committed training summary shows `+132%` total reward improvement from `1.925` to `4.475`. Note: this increase is driven by parse shaping and contextual bonuses; constraint-grounded signals are pending a full rerun after the v1.1 reward fixes.
 
+### Latest Colab run (300-step GRPO, best-so-far)
+
+The latest end-to-end Colab training run (Qwen 2.5 1.5B Instruct, 4-bit, T4, GRPO + LoRA) reached higher reward bands than the committed baseline and is the current best training evidence.
+
+| Metric | Value |
+|---|---:|
+| Total steps | `300` |
+| Batch / grad accumulation | `1 / 4` |
+| Precision | `fp16` |
+| Baseline reward | `+2.200` |
+| Peak observed reward | `~+8.25` |
+| Stable operating band | `+5.0 to +7.5` |
+| JSON parse bonus | `100% exact-parse from step 0` |
+| Tool-use exploration dip | `~38-50% around step 60` |
+
+Key training dynamic: the policy mastered schema-valid JSON and tool syntax early ("syntax before logic"), then improved causal targeting and recovery behavior over later steps.
+
+### Artifact inventory (latest run)
+
+The following files are the canonical deliverables for the latest run:
+- `adapter_model.safetensors`
+- `adapter_config.json`
+- `checkpoint-100/`
+- `checkpoint-150/`
+- `results.json`
+- `training_history.csv`
+- `progress.png` / `reward_curve.png`
+
 ### Judge evidence
 
 The current committed GRPO checkpoint is still early. The honest story is:
