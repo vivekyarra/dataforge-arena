@@ -7,6 +7,7 @@ Final reward:  +4.475
 Best reward:   +6.950
 Improvement:   +132%
 Parse rate:    100.0% -> 100.0%
-Accuracy comp: +0.0000 -> +0.0000
+Constraint:    +0.0000 -> +0.0000
+Shaped total:  +0.7506 -> +4.4500
 ========================
 HEADLINE: Reward +1.93 -> +4.47; parse 100% -> 100%

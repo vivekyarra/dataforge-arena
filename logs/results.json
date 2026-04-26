@@ -1,0 +1,14 @@
+{
+  "agent_mode": "grpo",
+  "model_source": "outputs/dataforge-surgeon",
+  "fallback_used": false,
+  "tier": 1,
+  "episodes": 20,
+  "max_steps": 5,
+  "seed": 7,
+  "surgeon_avg_accuracy_delta": -0.0005,
+  "random_avg_accuracy_delta": -0.0049,
+  "surgeon_advantage_accuracy_delta": 0.0044,
+  "surgeon_win_rate": 0.05,
+  "random_win_rate": 0.0
+}

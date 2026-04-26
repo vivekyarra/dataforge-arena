@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use DataForge Arena in your research, please cite it as follows."
+type: software
+title: "DataForge Arena: An OpenEnv Benchmark for Causal Schema Reasoning in Autonomous Data Repair"
+abstract: >
+  DataForge Arena is an OpenEnv-compatible reinforcement learning benchmark
+  where agents must maintain a persistent causal world model of structured
+  enterprise data - including type constraints, FK dependencies, enum domains,
+  and statistical distributions - to earn ground-truth-verified reward.
+  The environment trains agents using GRPO against a multi-signal reward function
+  with no LLM-as-judge in the reward loop.
+authors:
+  - family-names: "Yarra"
+    given-names: "Vivek"
+    alias: "Vivek567"
+repository-code: "https://github.com/vivekyarra/dataforge-arena"
+url: "https://huggingface.co/spaces/Vivek567/dataforge-arena"
+license: MIT
+version: "1.0.0"
+date-released: "2026-04-26"
+keywords:
+  - reinforcement-learning
+  - world-modeling
+  - data-quality
+  - GRPO
+  - OpenEnv
+  - enterprise-AI
+  - causal-reasoning
