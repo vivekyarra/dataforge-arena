@@ -1,23 +1,21 @@
-# DataForge Arena — OpenEnv Configuration
+# DataForge Arena - OpenEnv Configuration
 # https://huggingface.co/docs/openenv
 
 name: dataforge-arena
 version: "1.0.0"
 description: >
-  DataForge Arena: an OpenEnv benchmark training autonomous data cleaning agents
-  to maintain causal world models of structured enterprise data. The agent reasons
-  about schema types, value ranges, FK constraints, and statistical distributions
-  to select and justify repairs. Reward is grounded in ground-truth accuracy delta —
-  no LLM judge, no human annotation.
+  DataForge Arena is an OpenEnv benchmark for autonomous data cleaning agents.
+  The agent must maintain a causal world model of structured enterprise data:
+  schema types, value ranges, enum domains, foreign-key dependencies, and
+  statistical distributions. Reward is grounded in ground-truth accuracy delta
+  with no LLM judge in the loop.
 
-# Environment interface
 env:
   module: environment.env
   class: DataForgeEnv
   observation_type: structured
   action_type: structured
 
-# Server configuration
 server:
   module: environment.server
   framework: fastapi
@@ -25,50 +23,65 @@ server:
   endpoints:
     health: /health
     info: /info
-    reset: /reset
-    step: /step
+    reset:
+      path: /reset
+      method: POST
+      request_body:
+        tier:
+          type: integer
+          allowed: [1, 2, 3]
+          default: 1
+      response: DataForgeObservation
+    step:
+      path: /step
+      method: POST
+      request_body:
+        reasoning: string
+        tool_id: integer
+        column: integer
+        row_id: integer
+      response:
+        observation: DataForgeObservation
+        reward: float
+        done: bool
+        info: dict
+    metrics: /metrics
     docs: /docs
 
-# Deployment
 deployment:
   sdk: docker
   dockerfile: Dockerfile
   app_port: 7860
 
-# Task definition
 task:
   name: tabular-data-repair
   description: >
     Observe a corrupted tabular dataset, identify the causal violation type
-    (range, null, FK, enum, temporal, statistical outlier), select the appropriate
-    repair tool, target the correct cell, and improve data quality as measured by
-    accuracy delta against ground truth. The agent must maintain a causal world model
-    of schema constraints to earn alignment rewards.
-  max_steps: 5
+    (range, null, FK, enum, temporal, statistical outlier), select the
+    appropriate repair tool, target the correct cell, and improve data quality
+    as measured by accuracy delta against ground truth.
+  max_steps: 20
   difficulty_tiers: [1, 2, 3]
 
-# Reward specification
 reward:
   primary_signal: accuracy_delta
   shaping_terms:
-    - constraint_alignment      # Did agent correctly identify the violation type? (+3.0)
-    - schema_alignment          # Did agent select the right tool for the column type? (+2.0)
-    - outlier_targeting         # Did agent target a genuine statistical outlier (z > 3σ)? (+0.5)
-    - reasoning_quality         # Does reasoning reference column name + violation type? (+1.5)
-    - parse_bonus               # Clean, valid JSON output with reasoning > 10 chars (+0.5)
-    - anti_hack                 # Prevents mass-deletion reward hacking (−5.0)
+    - constraint_alignment
+    - schema_alignment
+    - outlier_targeting
+    - reasoning_quality
+    - parse_bonus
+    - anti_hack
   range: [-5.0, 8.0]
 
-# Schemas
 schemas:
   - name: healthcare
     file: environment/schemas.py
-    columns: 7
+    columns: 10
   - name: financial
     file: environment/schemas.py
-    columns: 7
+    columns: 8
 
-# Corruption taxonomy
 corruption:
   tier_1:
     - null_injection
@@ -79,9 +92,26 @@ corruption:
     - fk_mismatch
     - semantic_temporal_drift
     - currency_amount_inconsistency
-  escalation: rolling_avg_reward_gate_with_step_gate_and_deescalation
+  tier_3:
+    - break_foreign_key
+    - duplicate_row_mutate
+  escalation: rolling_6step_avg_reward_gate_with_step_gate_and_deescalation
+  escalation_details:
+    tier_1_to_2:
+      reward_threshold: 2.0
+      consecutive_steps: 6
+      min_training_step: 80
+    tier_2_to_3:
+      reward_threshold: 3.0
+      consecutive_steps: 6
+      min_training_step: 180
+    deescalation:
+      threshold: 1.0
+      consecutive_steps: 3
+    calibration_note: >
+      Thresholds calibrated for Qwen2.5-1.5B-Instruct-bnb-4bit on T4 GPU.
+      Reward range during training: 0.33-6.95, mean 3.45.
 
-# Training
 training:
   algorithm: GRPO
   framework: TRL
@@ -94,26 +124,28 @@ training:
     end: 0.2
     decay_steps: 200
 
-# Evaluation
 evaluation:
   agent_modes: [heuristic, grpo, random]
   default_episodes: 20
+  default_steps: 10
   default_seed: 7
+  default_schema: both
   metrics:
     - surgeon_avg_accuracy_delta
     - random_avg_accuracy_delta
     - surgeon_advantage_accuracy_delta
     - surgeon_win_rate
-    - destruction_ratio
-    - improvement_vs_random_pct
     - constraint_alignment_rate
     - schema_alignment_rate
+    - per_step_accuracy
+    - destruction_ratio
+    - constructive_ratio
+    - improvement_vs_random_pct
 
-# Metadata
 metadata:
   authors: [Vivek567]
   license: MIT
   hackathon: "Meta x PyTorch x Hugging Face x Scaler OpenEnv Hackathon 2026"
-  theme: "3.1 World Modeling / Professional Tasks — Causal Schema Reasoning Agent"
+  theme: "3.1 World Modeling / Professional Tasks - Causal Schema Reasoning Agent"
   repository: https://github.com/vivekyarra/dataforge-arena
   space: https://huggingface.co/spaces/Vivek567/dataforge-arena

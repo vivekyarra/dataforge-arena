@@ -8,7 +8,6 @@ import sys
 import threading
 import time
 import warnings
-import math
 from pathlib import Path
 
 import gradio as gr
@@ -21,40 +20,64 @@ from environment.env import DataForgeEnv, SurgeonAction
 from environment.reward import RewardComputer
 from environment.schemas import HEALTHCARE_SCHEMA, SURGEON_TOOLS
 from environment.validation import summarize_corruption
-from eval.evaluate import load_eval_pipeline, _resolve_loadable_model_path
+from eval.evaluate import _resolve_loadable_model_path, load_eval_pipeline
 from training.parser import robust_parse_action
 from training.prompt import build_prompt
 
-ROOT_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_PATH  = os.path.join(ROOT_DIR, "data", "healthcare_clean.csv")
-LOG_PATH   = os.path.join(ROOT_DIR, "logs", "training_log.csv")
-EVAL_PATH  = os.path.join(ROOT_DIR, "eval", "results.json")
-HEUR_PATH  = os.path.join(ROOT_DIR, "eval", "heuristic_results.json")
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_PATH = os.path.join(ROOT_DIR, "data", "healthcare_clean.csv")
+LOG_PATH = os.path.join(ROOT_DIR, "logs", "training_log.csv")
+EVAL_PATH = os.path.join(ROOT_DIR, "eval", "results.json")
+HEUR_PATH = os.path.join(ROOT_DIR, "eval", "heuristic_results.json")
 MODEL_PATH = os.path.join(ROOT_DIR, "outputs", "dataforge-surgeon")
 
-clean_data   = pd.read_csv(DATA_PATH)
-rc           = RewardComputer()
+clean_data = pd.read_csv(DATA_PATH)
+rc = RewardComputer()
 llm_pipeline = None
-llm_lock     = threading.Lock()
+llm_lock = threading.Lock()
 
 logger = logging.getLogger("dataforge.demo")
 if not logger.handlers:
-    h = logging.StreamHandler()
-    h.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
-    logger.addHandler(h)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+    logger.addHandler(handler)
 logger.setLevel(os.getenv("DATAFORGE_LOG_LEVEL", "INFO"))
 logger.propagate = False
 
+MAX_UI_STEPS = 5
+TIER_LABELS = {
+    "Tier 1": {
+        "tier": 1,
+        "label": "Tier 1",
+        "description": "Nulls, type errors, and range breaks",
+    },
+    "Tier 2": {
+        "tier": 2,
+        "label": "Tier 2",
+        "description": "Cross-column drift and clustered failures",
+    },
+    "Tier 3": {
+        "tier": 3,
+        "label": "Tier 3",
+        "description": "Relational integrity and duplicate mutations",
+    },
+}
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  INFRASTRUCTURE
-# ══════════════════════════════════════════════════════════════════════════════
 
-def _e(v) -> str:
-    return html.escape(str(v), quote=True)
+def _e(value) -> str:
+    return html.escape(str(value), quote=True)
+
 
 def _new_state():
-    return {"dirty": None, "gt": None, "meta": None, "tier": 1}
+    return {
+        "dirty": None,
+        "gt": None,
+        "meta": None,
+        "tier": 1,
+        "initial_accuracy": None,
+    }
+
 
 def local_model_available(path=None) -> bool:
     try:
@@ -63,11 +86,43 @@ def local_model_available(path=None) -> bool:
     except FileNotFoundError:
         return False
 
+
 def available_agent_choices():
     choices = ["Naive Baseline", "Heuristic Surgeon"]
     if local_model_available():
         choices.append("Live GRPO Model")
     return choices
+
+
+def _read_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except Exception:
+        return {}
+
+
+def get_training_data():
+    try:
+        df = pd.read_csv(LOG_PATH)
+        if len(df):
+            return df
+    except Exception:
+        pass
+    return pd.DataFrame({"step": [0], "total_reward": [0.0], "difficulty": [1]})
+
+
+def _fmt_pp(value):
+    return f"{float(value) * 100:+.2f} pp" if value is not None else "Pending"
+
+
+def _agent_label(label):
+    if "Naive" in label:
+        return "Naive Baseline"
+    if "Heuristic" in label:
+        return "Heuristic Surgeon"
+    return "Live GRPO Model"
+
 
 def _align_dup_gt(dirty, gt, meta):
     if meta.get("tool") == "duplicate_row_mutate" and len(dirty) > len(gt):
@@ -76,45 +131,31 @@ def _align_dup_gt(dirty, gt, meta):
             return pd.concat([gt, gt.iloc[[src]]], ignore_index=True)
     return gt
 
+
 def _build_env(dirty, gt, tier):
-    c = Corruptor(); c.force_tier(tier)
-    env = DataForgeEnv(corruptor=c, schema=HEALTHCARE_SCHEMA, clean_data=clean_data)
+    corruptor = Corruptor()
+    corruptor.force_tier(tier)
+    env = DataForgeEnv(corruptor=corruptor, schema=HEALTHCARE_SCHEMA, clean_data=clean_data)
     acc = rc._field_accuracy(dirty, gt)
-    env._state          = dirty.copy()
-    env._ground_truth   = gt.copy()
+    env._state = dirty.copy()
+    env._ground_truth = gt.copy()
     env._original_dirty = dirty.copy()
-    env._prev_accuracy  = acc
+    env._prev_accuracy = acc
     env._starting_accuracy = acc
-    env._step_count     = 0
-    env._action_log     = []
+    env._step_count = 0
+    env._action_log = []
     env._episode_rewards = []
-    env._episode_start  = time.time()
+    env._episode_start = time.time()
     return env, acc
 
-def _read_json(path):
-    try:
-        with open(path, "r") as f: return json.load(f)
-    except: return {}
-
-def get_training_data():
-    try:
-        df = pd.read_csv(LOG_PATH)
-        if len(df): return df
-    except: pass
-    return pd.DataFrame({"step":[0],"total_reward":[0],"difficulty":[1]})
-
-def _fmt_pp(v):
-    return f"{float(v)*100:+.2f} pp" if v is not None else "—"
-
-def _agent_label(t):
-    return {"Naive Baseline":"Naive Baseline","Heuristic Surgeon":"Heuristic Surgeon"}.get(t,"Live GRPO")
 
 def load_llm():
     global llm_pipeline
     if not local_model_available():
         return False, f"No checkpoint found at {MODEL_PATH}"
     with llm_lock:
-        if llm_pipeline is not None: return True, "ok"
+        if llm_pipeline is not None:
+            return True, "ok"
         try:
             llm_pipeline = load_eval_pipeline(MODEL_PATH)
             return True, "ok"
@@ -122,1014 +163,1148 @@ def load_llm():
             llm_pipeline = None
             return False, str(exc)
 
+
 def _run_llm(messages):
     with llm_lock:
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
-            return llm_pipeline(messages, max_new_tokens=96, temperature=0.1,
-                                do_sample=False, num_return_sequences=1)
+            return llm_pipeline(
+                messages,
+                max_new_tokens=96,
+                temperature=0.1,
+                do_sample=False,
+                num_return_sequences=1,
+            )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  DESIGN SYSTEM
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _ring_svg(value: float | None, label: str, tone: str = "neutral",
-              size: int = 108, sw: int = 9) -> str:
-    """Animated SVG accuracy ring."""
-    r = (size / 2) - sw
-    circ = 2 * math.pi * r
-    colors = {
-        "good":    "#00ff88",
-        "bad":     "#ff3d57",
-        "warn":    "#ffb020",
-        "neutral": "rgba(255,255,255,0.22)",
+def _training_snapshot():
+    df = get_training_data()
+    latest_reward = None
+    best_reward = None
+    parse_rate = None
+    tiers = "1"
+    if "total_reward" in df.columns:
+        rewards = pd.to_numeric(df["total_reward"], errors="coerce").dropna()
+        if len(rewards):
+            latest_reward = float(rewards.iloc[-1])
+            best_reward = float(rewards.max())
+    if "parse_success_rate" in df.columns:
+        parse = pd.to_numeric(df["parse_success_rate"], errors="coerce").dropna()
+        if len(parse):
+            parse_rate = float(parse.mean() * 100.0)
+    if "difficulty" in df.columns:
+        levels = sorted(pd.to_numeric(df["difficulty"], errors="coerce").dropna().astype(int).unique())
+        if len(levels) == 1:
+            tiers = str(levels[0])
+        elif len(levels) > 1:
+            tiers = f"{levels[0]}-{levels[-1]}"
+    return {
+        "latest_reward": latest_reward,
+        "best_reward": best_reward,
+        "parse_rate": parse_rate,
+        "tiers": tiers,
     }
-    col = colors.get(tone, colors["neutral"])
-    if value is not None:
-        filled = circ * min(max(value, 0), 1)
-        gap    = circ - filled
-        da     = f"{filled:.2f} {gap:.2f}"
-        txt    = f"{value:.1%}"
-    else:
-        da  = f"0 {circ:.2f}"
-        txt = "—"
-    cx = cy = size / 2
+
+
+def _hero_html() -> str:
+    grpo = _read_json(EVAL_PATH)
+    heur = _read_json(HEUR_PATH)
+    training = _training_snapshot()
+    grpo_adv = _fmt_pp(grpo.get("surgeon_advantage_accuracy_delta"))
+    heur_adv = _fmt_pp(heur.get("surgeon_advantage_accuracy_delta"))
+    parse = training["parse_rate"]
+    parse_text = f"{parse:.0f}% structured output" if parse is not None else "Structured output pending"
+    checkpoint_text = "Checkpoint ready" if local_model_available() else "Checkpoint gated"
     return f"""
-<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="{cx}" cy="{cy}" r="{r}" fill="none"
-    stroke="rgba(255,255,255,0.06)" stroke-width="{sw}"/>
-  <circle cx="{cx}" cy="{cy}" r="{r}" fill="none"
-    stroke="{col}" stroke-width="{sw}"
-    stroke-dasharray="{da}" stroke-linecap="round"
-    transform="rotate(-90 {cx} {cy})"
-    style="transition: stroke-dasharray .8s cubic-bezier(.4,0,.2,1);"/>
-  <text x="{cx}" y="{cy - 6}" text-anchor="middle" fill="white"
-    font-size="16" font-weight="600"
-    font-family="'DM Mono',monospace">{_e(txt)}</text>
-  <text x="{cx}" y="{cy + 10}" text-anchor="middle"
-    fill="rgba(255,255,255,0.35)" font-size="8"
-    font-family="'DM Mono',monospace" letter-spacing="1.5">{_e(label.upper())}</text>
-</svg>"""
+<section class="hero-shell">
+  <div class="hero-copy">
+    <div class="hero-kicker">Meta x PyTorch x OpenEnv Hackathon 2026</div>
+    <h1 class="hero-title">DataForge Arena</h1>
+    <p class="hero-subtitle">
+      World-model-driven data repair. One live episode, one repair policy, one clean decision trail.
+    </p>
+    <div class="hero-strip">
+      <span class="hero-pill">GRPO {grpo_adv}</span>
+      <span class="hero-pill">Heuristic {heur_adv}</span>
+      <span class="hero-pill">{_e(parse_text)}</span>
+      <span class="hero-pill">{_e(checkpoint_text)}</span>
+    </div>
+  </div>
+  <div class="hero-panel">
+    <div class="hero-panel-label">Environment</div>
+    <div class="hero-panel-title">Autonomous tabular repair with causal constraints</div>
+    <div class="hero-panel-grid">
+      <div><span>Reward</span><strong>Ground truth delta</strong></div>
+      <div><span>Signals</span><strong>Constraint, schema, parse</strong></div>
+      <div><span>Tiers</span><strong>Three adaptive curricula</strong></div>
+      <div><span>Mode</span><strong>Judge-ready HF Space</strong></div>
+    </div>
+  </div>
+</section>
+"""
 
 
-def _spark_bars(values: list[float], color: str = "#00ff88", height: int = 28) -> str:
-    """Tiny inline sparkbar from a list of floats."""
-    if not values: return ""
-    mn, mx = min(values), max(values)
-    span = mx - mn or 1
-    w = 3
-    gap = 2
-    total_w = len(values) * (w + gap) - gap
-    bars = []
-    for i, v in enumerate(values):
-        h = max(2, int((v - mn) / span * height))
-        x = i * (w + gap)
-        y = height - h
-        bars.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="1" fill="{color}" opacity="0.85"/>')
-    return (f'<svg width="{total_w}" height="{height}" viewBox="0 0 {total_w} {height}" '
-            f'xmlns="http://www.w3.org/2000/svg">{"".join(bars)}</svg>')
+def _benchmark_html() -> str:
+    grpo = _read_json(EVAL_PATH)
+    heur = _read_json(HEUR_PATH)
+    training = _training_snapshot()
+    heuristic_value = heur.get("surgeon_advantage_accuracy_delta")
+    grpo_value = grpo.get("surgeon_advantage_accuracy_delta")
+    latest_reward = training.get("latest_reward")
+    best_reward = training.get("best_reward")
+    parse_rate = training.get("parse_rate")
 
+    def row(label, value, note):
+        tone = "good" if value is not None and value >= 0 else "muted"
+        return f"""
+<div class="benchmark-row">
+  <div>
+    <div class="benchmark-name">{_e(label)}</div>
+    <div class="benchmark-note">{_e(note)}</div>
+  </div>
+  <div class="benchmark-value benchmark-{tone}">{_e(_fmt_pp(value))}</div>
+</div>
+"""
 
-def _stat_inline(label: str, value: str, tone: str = "neutral") -> str:
-    col = {"good": "#00ff88", "bad": "#ff3d57", "warn": "#ffb020"}.get(tone, "rgba(255,255,255,0.7)")
-    return (f"<div class='si'>"
-            f"<div class='si-label'>{_e(label)}</div>"
-            f"<div class='si-value' style='color:{col}'>{_e(value)}</div>"
-            f"</div>")
-
-
-def _cell(v) -> str:
-    if pd.isna(v): return "<span class='null-v'>NULL</span>"
-    return _e(v)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  HTML SECTIONS
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _topbar_html() -> str:
-    ev   = _read_json(EVAL_PATH)
-    base = _read_json(HEUR_PATH)
-    ckpt = local_model_available()
-    ha   = base.get("surgeon_advantage_accuracy_delta")
-    ga   = ev.get("surgeon_advantage_accuracy_delta")
+    latest_text = f"{latest_reward:+.2f}" if latest_reward is not None else "Pending"
+    best_text = f"{best_reward:+.2f}" if best_reward is not None else "Pending"
+    parse_text = f"{parse_rate:.0f}%" if parse_rate is not None else "Pending"
     return f"""
-<div class="topbar">
-  <div class="tb-brand">
-    <div class="tb-dot"></div>
-    <span class="tb-name">DataForge Arena</span>
-    <span class="tb-tag">RL Data Repair</span>
+<section class="benchmark-shell">
+  <div class="section-tag">Performance</div>
+  <h2 class="section-title">Benchmark evidence</h2>
+  {row("Heuristic Surgeon", heuristic_value, "Rule-based constraint-aware repairs")}
+  {row("GRPO Checkpoint", grpo_value, "Trained policy checkpoint")}
+  <div class="benchmark-footer">
+    <span>Latest reward <strong>{_e(latest_text)}</strong></span>
+    <span>Best reward <strong>{_e(best_text)}</strong></span>
+    <span>Parse <strong>{_e(parse_text)}</strong></span>
   </div>
-  <div class="tb-stats">
-    <div class="tb-stat">
-      <span class="tb-stat-label">Heuristic</span>
-      <span class="tb-stat-val {'tb-good' if ha and ha>=0 else ''}">{_fmt_pp(ha)}</span>
-    </div>
-    <div class="tb-divider"></div>
-    <div class="tb-stat">
-      <span class="tb-stat-label">GRPO</span>
-      <span class="tb-stat-val {'tb-good' if ga and ga>=0 else ''}">{_fmt_pp(ga)}</span>
-    </div>
-    <div class="tb-divider"></div>
-    <div class="tb-stat">
-      <span class="tb-stat-label">Model</span>
-      <span class="tb-stat-val {'tb-good' if ckpt else 'tb-dim'}">{'Ready' if ckpt else 'Gated'}</span>
-    </div>
-  </div>
-  <div class="tb-live">
-    <span class="tb-live-dot"></span>
-    <span>Live</span>
-  </div>
-</div>"""
+</section>
+"""
 
 
-def _empty_rollout() -> str:
+def _status_html(tier: int, rows: int | None, accuracy: float | None, label: str) -> str:
+    row_text = str(rows) if rows is not None else "--"
+    acc_text = f"{accuracy:.1%}" if accuracy is not None else "--"
+    return f"""
+<section class="status-shell">
+  <div class="status-item"><span>Tier</span><strong>{tier}</strong></div>
+  <div class="status-item"><span>Rows</span><strong>{_e(row_text)}</strong></div>
+  <div class="status-item"><span>Health</span><strong>{_e(acc_text)}</strong></div>
+  <div class="status-item"><span>Status</span><strong>{_e(label)}</strong></div>
+</section>
+"""
+
+
+def _accuracy_html(before: float | None, after: float | None) -> str:
+    if before is None or after is None:
+        return """
+<section class="metric-shell">
+  <div class="section-tag">Accuracy</div>
+  <h3 class="metric-title">No run yet</h3>
+  <p class="metric-note">Generate a scenario to compare corrupted and repaired state.</p>
+</section>
+"""
+    delta = after - before
+    tone = "good" if delta >= 0 else "bad"
+    return f"""
+<section class="metric-shell">
+  <div class="section-tag">Accuracy</div>
+  <div class="metric-grid">
+    <div><span>Before</span><strong>{before:.1%}</strong></div>
+    <div><span>After</span><strong>{after:.1%}</strong></div>
+    <div><span>Delta</span><strong class="{tone}">{delta * 100:+.2f} pp</strong></div>
+  </div>
+  <div class="metric-track"><span class="metric-fill" style="width:{max(min(after, 1.0), 0.0) * 100:.1f}%"></span></div>
+</section>
+"""
+
+
+def _brief_html(meta=None, obs=None, agent_type: str | None = None, note: str | None = None) -> str:
+    corruption = meta.get("tool", "Pending") if meta else "Pending"
+    target_hint = getattr(obs, "target_cell_hint", "") if obs else ""
+    violation = getattr(obs, "violation_type", "") if obs else ""
+    error_count = getattr(obs, "total_errors", None) if obs else None
+    agent_text = agent_type or "No agent selected"
+    note_text = note or "Generate a scenario to inspect the most suspicious row."
+    error_line = str(error_count) if error_count is not None else "--"
+    hint_block = target_hint or "Target hint will appear after scenario generation."
+    violation_block = violation or "Violation type pending."
+    return f"""
+<section class="brief-shell">
+  <div class="section-tag">Run brief</div>
+  <h3 class="brief-title">{_e(agent_text)}</h3>
+  <div class="brief-grid">
+    <div><span>Corruption</span><strong>{_e(corruption)}</strong></div>
+    <div><span>Errors</span><strong>{_e(error_line)}</strong></div>
+  </div>
+  <p class="brief-hint">{_e(hint_block)}</p>
+  <p class="brief-note">{_e(violation_block)}</p>
+  <p class="brief-caption">{_e(note_text)}</p>
+</section>
+"""
+
+
+def _empty_timeline_html() -> str:
     return """
-<div class="empty-center">
-  <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="20" cy="20" r="18" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
-    <path d="M14 20 L18 24 L26 16" stroke="rgba(255,255,255,0.15)" stroke-width="2"
-      fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg>
-  <div class="empty-label">Generate a scenario to begin</div>
-</div>"""
+<section class="timeline-shell">
+  <div class="section-tag">Repair trace</div>
+  <h3 class="timeline-title">Awaiting scenario</h3>
+  <p class="timeline-note">Create a scenario, then execute a repair policy to stream the action trail.</p>
+</section>
+"""
 
 
-def _scenario_stats_html(meta, acc_before, total_errors, tier) -> str:
-    tier_colors = {1: "#00ff88", 2: "#ffb020", 3: "#ff3d57"}
-    col = tier_colors.get(tier, "#fff")
-    tier_labels = {1: "T1 Simple", 2: "T2 Cluster", 3: "T3 Relational"}
-    tool = meta.get("tool", "?")
-    return f"""
-<div class="scenario-bar">
-  <div class="sb-pill" style="color:{col}; border-color:{col}44;">
-    <span class="sb-dot" style="background:{col};"></span>
-    {tier_labels.get(tier, f'T{tier}')}
+def _timeline_html(rollouts: list[dict], total_steps: int) -> str:
+    if not rollouts:
+        return _empty_timeline_html()
+
+    rows = []
+    for idx, item in enumerate(rollouts, start=1):
+        reward = float(item.get("reward", 0.0))
+        reward_cls = "good" if reward >= 0 else "bad"
+        components = item.get("components", {})
+        component_bits = []
+        for key in ("constraint_alignment", "schema_alignment", "reasoning_quality", "parse_bonus"):
+            value = components.get(key)
+            if value is None:
+                continue
+            component_bits.append(f"{key.replace('_', ' ')} {float(value):+.2f}")
+        component_text = " | ".join(component_bits) if component_bits else "No component trace"
+        rows.append(
+            f"""
+<div class="timeline-row">
+  <div class="timeline-step">Step {idx:02d} / {total_steps}</div>
+  <div class="timeline-body">
+    <div class="timeline-head">
+      <strong>{_e(item.get("tool_name", "?"))}</strong>
+      <span class="timeline-reward {reward_cls}">{reward:+.2f}</span>
+    </div>
+    <div class="timeline-meta">row {item.get("row_id", "?")} | column {_e(item.get("column_name", "?"))}</div>
+    <div class="timeline-reason">{_e(item.get("reasoning", ""))}</div>
+    <div class="timeline-components">{_e(component_text)}</div>
   </div>
-  <div class="sb-facts">
-    {_stat_inline("Health", f"{acc_before:.1%}", "warn" if acc_before < 0.95 else "good")}
-    {_stat_inline("Issues", str(total_errors), "bad" if total_errors else "good")}
-    {_stat_inline("Type", tool[:22], "warn")}
-  </div>
-</div>"""
-
-
-def _accuracy_display(acc_before, acc_after) -> str:
-    """Side-by-side rings + delta bar."""
-    delta = (acc_after - acc_before) if acc_after is not None else None
-    before_ring = _ring_svg(acc_before, "Before", "neutral")
-    after_tone  = ("good" if (delta or 0) >= 0 else "bad") if acc_after is not None else "neutral"
-    after_ring  = _ring_svg(acc_after,  "After",  after_tone)
-    if delta is not None:
-        d_col = "#00ff88" if delta >= 0 else "#ff3d57"
-        d_sym = "↑" if delta >= 0 else "↓"
-        delta_html = f"""
-        <div class="acc-delta" style="color:{d_col};">
-          <div class="acc-delta-sym">{d_sym}</div>
-          <div class="acc-delta-val">{delta*100:+.2f} pp</div>
-          <div class="acc-delta-label">delta</div>
-        </div>"""
-    else:
-        delta_html = "<div class='acc-delta-empty'>—</div>"
+</div>
+"""
+        )
     return f"""
-<div class="acc-rings">
-  <div class="ring-wrap">{before_ring}</div>
-  {delta_html}
-  <div class="ring-wrap">{after_ring}</div>
-</div>"""
+<section class="timeline-shell">
+  <div class="section-tag">Repair trace</div>
+  <h3 class="timeline-title">Episode timeline</h3>
+  {''.join(rows)}
+</section>
+"""
 
 
 def _diff_html(original, current, gt) -> str:
     if original is None or current is None or gt is None:
-        return "<div class='diff-empty'>No diff available yet.</div>"
+        return """
+<section class="diff-shell">
+  <div class="section-tag">Repair delta</div>
+  <h3 class="diff-title">No diff yet</h3>
+  <p class="diff-note">The repair ledger will appear after the first action executes.</p>
+</section>
+"""
 
-    cols  = [c for c in current.columns if c != "_is_deleted"]
-    rlim  = min(len(current), len(gt))
-    fixed = reg = rem = 0
-    changed_rows  = []
-    broken_rows   = []
+    cols = [c for c in current.columns if c != "_is_deleted"]
+    limit = min(len(current), len(gt))
+    fixed = 0
+    regressed = 0
+    remaining = 0
+    changes = []
 
-    for ri in range(rlim):
+    for row_idx in range(limit):
         for col in cols:
-            bef    = original.at[ri, col]
-            aft    = current.at[ri, col]
-            tgt    = gt.at[ri, col]
-            bef_ok = rc._values_match(bef, tgt)
-            aft_ok = rc._values_match(aft, tgt)
-            if not aft_ok:
-                rem += 1
-                if len(broken_rows) < 6:
-                    broken_rows.append((ri, col, _cell(aft), _cell(tgt)))
-            if not rc._values_match(bef, aft):
-                if not bef_ok and aft_ok:   fixed += 1; badge, bc = "Fixed",     "bf"
-                elif bef_ok and not aft_ok: reg   += 1; badge, bc = "Regressed", "br"
-                else:                                    badge, bc = "Shifted",   "bs"
-                if len(changed_rows) < 6:
-                    changed_rows.append((badge, bc, ri, col, _cell(bef), _cell(aft), _cell(tgt)))
+            before = original.at[row_idx, col]
+            after = current.at[row_idx, col]
+            target = gt.at[row_idx, col]
+            before_ok = rc._values_match(before, target)
+            after_ok = rc._values_match(after, target)
+            if not after_ok:
+                remaining += 1
+            if not rc._values_match(before, after):
+                if not before_ok and after_ok:
+                    fixed += 1
+                    status = "Fixed"
+                elif before_ok and not after_ok:
+                    regressed += 1
+                    status = "Regressed"
+                else:
+                    status = "Shifted"
+                if len(changes) < 8:
+                    changes.append(
+                        (status, row_idx, col, before, after, target)
+                    )
 
-    def rows_changed(rows):
-        if not rows: return "<tr><td colspan='6' class='dt-empty'>No edits yet</td></tr>"
-        return "".join(
-            f"<tr><td><span class='dbadge {bc}'>{badge}</span></td>"
-            f"<td>{ri}</td><td>{_e(col)}</td><td>{bef}</td><td>{aft}</td><td>{tgt}</td></tr>"
-            for badge,bc,ri,col,bef,aft,tgt in rows)
-
-    def rows_broken(rows):
-        if not rows: return "<tr><td colspan='4' class='dt-empty'>All aligned ✓</td></tr>"
-        return "".join(
-            f"<tr><td>{ri}</td><td>{_e(col)}</td><td>{aft}</td><td>{tgt}</td></tr>"
-            for ri,col,aft,tgt in rows)
-
-    fc = "#00ff88" if fixed else "rgba(255,255,255,0.3)"
-    rc2 = "#ff3d57" if reg   else "#00ff88"
-    rm  = "#ffb020" if rem   else "#00ff88"
-
-    return f"""
-<div class="diff-root">
-  <div class="diff-stats-row">
-    <div class="dsr-item"><span class="dsr-val" style="color:{fc}">{fixed}</span><span class="dsr-label">Fixed</span></div>
-    <div class="dsr-sep"></div>
-    <div class="dsr-item"><span class="dsr-val" style="color:{rc2}">{reg}</span><span class="dsr-label">Regressed</span></div>
-    <div class="dsr-sep"></div>
-    <div class="dsr-item"><span class="dsr-val" style="color:{rm}">{rem}</span><span class="dsr-label">Remaining</span></div>
-  </div>
-  <div class="diff-grid">
-    <div class="diff-panel">
-      <div class="dp-head">Changed Cells</div>
-      <div class="dp-scroll">
-        <table class="dt"><thead><tr><th>Status</th><th>Row</th><th>Col</th><th>Before</th><th>After</th><th>Target</th></tr></thead>
-        <tbody>{rows_changed(changed_rows)}</tbody></table>
-      </div>
-    </div>
-    <div class="diff-panel">
-      <div class="dp-head">Still Broken</div>
-      <div class="dp-scroll">
-        <table class="dt"><thead><tr><th>Row</th><th>Col</th><th>Current</th><th>Target</th></tr></thead>
-        <tbody>{rows_broken(broken_rows)}</tbody></table>
-      </div>
-    </div>
-  </div>
-</div>"""
-
-
-def _rollout_html(rollouts, dirty, current, gt, acc_before, agent_type,
-                  total_steps=5, pending_step=None) -> tuple:
-    acc_after    = rc._field_accuracy(current, gt)
-    delta        = acc_after - acc_before
-    total_reward = sum(r.get("reward",0) for r in rollouts)
-    done_steps   = len(rollouts)
-    pct          = min(100, (done_steps + (0.4 if pending_step else 0)) / total_steps * 100)
-
-    last = rollouts[-1] if rollouts else {}
-    lr   = last.get("reasoning",""); lr = lr[:64]+"…" if len(lr)>64 else lr
-    lviol= last.get("violation_type","")
-    ltool= last.get("tool_name","")
-
-    # Trajectory rows
-    traj = ""
-    for i, r in enumerate(rollouts):
-        rew   = r.get("reward", 0)
-        win   = rew >= 0
-        rsn   = r.get("reasoning",""); rsn = rsn[:52]+"…" if len(rsn)>52 else rsn
-        tnm   = r.get("tool_name","?")
-        rowid = r.get("row_id","?")
-        coln  = r.get("column_name","?")
-        vt    = r.get("violation_type","")
-        traj += f"""
-<div class="tr-row {'tr-win' if win else 'tr-loss'}">
-  <span class="tr-n">{'✓' if win else '✗'}{i+1:02d}</span>
-  <span class="tr-rsn">{_e(rsn)}</span>
-  <span class="tr-tool">{_e(tnm)}</span>
-  <span class="tr-loc">r{rowid}/{_e(coln)}</span>
-  <span class="tr-rew {'tr-rew-pos' if win else 'tr-rew-neg'}">{rew:+.2f}</span>
-</div>"""
-
-    # Reward DNA
-    comps = last.get("components",{}) if rollouts else {}
-    dna_labels = {"accuracy_delta":"Accuracy","constraint_alignment":"Constraint",
-                  "schema_alignment":"Schema","outlier_targeting":"Outlier",
-                  "reasoning_quality":"Reasoning","parse_bonus":"Parse","anti_hack":"Anti-Hack"}
-    scale = max([abs(float(v)) for v in comps.values() if isinstance(v,(int,float))]+[0.01])
-    dna_rows = ""
-    for k, lab in dna_labels.items():
-        v   = float(comps.get(k,0))
-        pct2= min(100, abs(v)/scale*100)
-        pos = v>=0
-        dna_rows += f"""
-<div class="dna-r">
-  <span class="dna-lbl">{_e(lab)}</span>
-  <div class="dna-track"><span class="dna-fill {'df-p' if pos else 'df-n'}" style="width:{pct2:.0f}%"></span></div>
-  <span class="dna-v {'dv-p' if pos else 'dv-n'}">{v:+.2f}</span>
-</div>"""
-
-    d_col = "#00ff88" if delta >= 0 else "#ff3d57"
-
-    html_out = f"""
-<div class="ro-root">
-  <div class="ro-progress">
-    <div class="ro-prog-meta">
-      <span class="ro-prog-label">Step {done_steps}/{total_steps}</span>
-      <span class="ro-prog-agent">{_e(_agent_label(agent_type))}</span>
-      <span class="ro-prog-state">{'Running…' if pending_step else 'Complete'}</span>
-    </div>
-    <div class="ro-track"><span class="ro-fill" style="width:{pct:.1f}%"></span></div>
-  </div>
-
-  <div class="ro-metrics">
-    <div class="rom-item">
-      <div class="rom-val" style="color:{d_col}">{delta*100:+.2f}</div>
-      <div class="rom-label">pp delta</div>
-    </div>
-    <div class="rom-sep"></div>
-    <div class="rom-item">
-      <div class="rom-val {'rom-pos' if total_reward>=0 else 'rom-neg'}">{total_reward:+.2f}</div>
-      <div class="rom-label">reward</div>
-    </div>
-    <div class="rom-sep"></div>
-    <div class="rom-item">
-      <div class="rom-val">{done_steps}</div>
-      <div class="rom-label">calls</div>
-    </div>
-  </div>
-
-  {f'''<div class="ro-causal">
-    <div class="rc-label">Last reasoning</div>
-    <div class="rc-text">"{_e(lr)}"</div>
-    <div class="rc-tags">
-      {f'<span class="rc-tag rc-viol">{_e(lviol)}</span>' if lviol else ''}
-      {f'<span class="rc-tag rc-tool">{_e(ltool)}</span>' if ltool else ''}
-    </div>
-  </div>''' if lr else ''}
-
-  <div class="ro-traj">
-    <div class="rot-head">Trajectory</div>
-    <div class="rot-list">
-      {traj if traj else '<div class="rot-empty">No steps yet</div>'}
-    </div>
-  </div>
-
-  {f'<div class="ro-dna"><div class="dna-head">Reward DNA</div>{dna_rows}</div>' if dna_rows else ''}
-</div>"""
-
-    diff_out  = _diff_html(dirty, current, gt)
-    acc_disp  = _accuracy_display(acc_before, acc_after)
-    return html_out, acc_disp, diff_out
-
-
-def _benchmark_html() -> str:
-    ev   = _read_json(EVAL_PATH)
-    base = _read_json(HEUR_PATH)
-    training = _get_training_summary()
-    ha = base.get("surgeon_advantage_accuracy_delta")
-    ga = ev.get("surgeon_advantage_accuracy_delta")
-    scale = max(abs(ha or 0), abs(ga or 0), 0.01)
-
-    def lane(label, val, detail):
-        if val is None:
-            pct, col, vtxt = 15, "rgba(255,255,255,0.2)", "Pending"
-        else:
-            pct  = 15 + abs(val)/scale * 85
-            col  = "#00ff88" if val >= 0 else "#ff3d57"
-            vtxt = _fmt_pp(val)
-        return f"""
-<div class="bm-lane">
-  <div class="bm-meta">
-    <span class="bm-name">{_e(label)}</span>
-    <span class="bm-val" style="color:{col}">{_e(vtxt)}</span>
-  </div>
-  <div class="bm-track"><span class="bm-bar" style="width:{pct:.1f}%; background:{col}44; border-right: 2px solid {col};"></span></div>
-  <div class="bm-detail">{_e(detail)}</div>
-</div>"""
-
-    lr  = training.get("latest_reward")
-    ia  = training.get("invalid_action_rate")
-    lr_txt = f"{lr:+.2f}" if lr is not None else "—"
-    ia_txt = f"{ia:.1f}%" if ia is not None else "—"
+    rows = ""
+    if changes:
+        for status, row_idx, col, before, after, target in changes:
+            rows += f"""
+<tr>
+  <td>{_e(status)}</td>
+  <td>{row_idx}</td>
+  <td>{_e(col)}</td>
+  <td>{_e(before)}</td>
+  <td>{_e(after)}</td>
+  <td>{_e(target)}</td>
+</tr>
+"""
+    else:
+        rows = "<tr><td colspan='6'>No cell changes recorded yet.</td></tr>"
 
     return f"""
-<div class="bm-root">
-  <div class="bm-header">Benchmark Race</div>
-  {lane("Heuristic Surgeon", ha, "Rule-based baseline")}
-  {lane("GRPO Checkpoint",   ga, "Trained checkpoint")}
-  <div class="bm-foot">
-    <span>Latest reward <b>{lr_txt}</b></span>
-    <span>Invalid actions <b>{ia_txt}</b></span>
+<section class="diff-shell">
+  <div class="section-tag">Repair delta</div>
+  <div class="diff-stats">
+    <div><span>Fixed</span><strong>{fixed}</strong></div>
+    <div><span>Regressed</span><strong>{regressed}</strong></div>
+    <div><span>Remaining</span><strong>{remaining}</strong></div>
   </div>
-</div>"""
+  <div class="diff-table-wrap">
+    <table class="diff-table">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Row</th>
+          <th>Column</th>
+          <th>Before</th>
+          <th>After</th>
+          <th>Target</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows}
+      </tbody>
+    </table>
+  </div>
+</section>
+"""
 
-
-def _arch_html() -> str:
-    items = [
-        ("↗", "Observe",  "Schema, suspect rows, and recent actions → structured prompt."),
-        ("⚡", "Act",      "One constrained JSON repair action per step."),
-        ("◈",  "Score",   "Accuracy delta · tool logic · efficiency · anti-shortcut."),
-        ("↑",  "Escalate","Simple nulls → cluster → relational failures."),
-    ]
-    cards = "".join(f"""
-<div class="arch-c">
-  <div class="arch-icon">{icon}</div>
-  <div class="arch-title">{_e(t)}</div>
-  <div class="arch-desc">{_e(d)}</div>
-</div>""" for icon,t,d in items)
-    return f"<div class='arch-grid'>{cards}</div>"
-
-
-def _mode_banner() -> str:
-    ckpt = local_model_available()
-    col  = "#00ff88" if ckpt else "rgba(255,255,255,0.3)"
-    msg  = "GRPO checkpoint detected — live inference enabled." if ckpt else "No local checkpoint. Baseline + heuristic paths active."
-    return f"""
-<div class="mode-b" style="border-color:{'rgba(0,255,136,0.2)' if ckpt else 'rgba(255,255,255,0.07)'}">
-  <span class="mode-dot" style="background:{col};{'animation:pulse 2s infinite' if ckpt else ''}"></span>
-  <span class="mode-txt">{_e(msg)}</span>
-</div>"""
-
-
-def _get_training_summary():
-    df = get_training_data()
-    s  = {"parse_success":None,"parse_first":None,"parse_last":None,
-          "invalid_action_rate":None,"tiers":"—","latest_reward":None,"best_reward":None}
-    if df.empty: return s
-    if "parse_success_rate" in df:
-        v = pd.to_numeric(df["parse_success_rate"], errors="coerce").dropna()
-        if len(v):
-            s["parse_success"] = float(v.mean()*100)
-            s["parse_first"]   = float(v.iloc[0]*100)
-            s["parse_last"]    = float(v.iloc[-1]*100)
-    if "invalid_action_rate" in df:
-        v = pd.to_numeric(df["invalid_action_rate"], errors="coerce").dropna()
-        if len(v): s["invalid_action_rate"] = float(v.iloc[-1]*100)
-    if "difficulty" in df:
-        t = sorted(pd.to_numeric(df["difficulty"], errors="coerce").dropna().astype(int).unique())
-        if t: s["tiers"] = f"{t[0]}–{t[-1]}" if len(t)>1 else str(t[0])
-    if "total_reward" in df:
-        v = pd.to_numeric(df["total_reward"], errors="coerce").dropna()
-        if len(v):
-            s["latest_reward"] = float(v.iloc[-1])
-            s["best_reward"]   = float(v.max())
-    return s
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  AGENT LOGIC
-# ══════════════════════════════════════════════════════════════════════════════
 
 def heuristic_surgeon(state, gt):
     cols = [c for c in state.columns if c != "_is_deleted"]
-    for ri in range(min(len(state), len(gt))):
-        for ci, col in enumerate(cols):
-            cell  = state.at[ri, col]
-            gtcel = gt.at[ri, col]
-            if pd.isna(cell) and pd.notna(gtcel):
-                t = HEALTHCARE_SCHEMA.get(col,{}).get("type","str")
-                tid = 0 if t in ("int","float") else 1
-                return SurgeonAction(reasoning=f"Null in '{col}' → {'IMPUTE_MEDIAN' if tid==0 else 'IMPUTE_MODE'}",
-                                     tool_id=tid, column=ci, row_id=ri)
-            if pd.notna(cell) and pd.notna(gtcel) and str(cell) != str(gtcel):
+    for row_idx in range(min(len(state), len(gt))):
+        for col_idx, col in enumerate(cols):
+            cell = state.at[row_idx, col]
+            gt_cell = gt.at[row_idx, col]
+            if pd.isna(cell) and pd.notna(gt_cell):
+                col_type = HEALTHCARE_SCHEMA.get(col, {}).get("type", "str")
+                tool_id = 0 if col_type in ("int", "float") else 1
+                tool_name = "IMPUTE_MEDIAN" if tool_id == 0 else "IMPUTE_MODE"
+                return SurgeonAction(
+                    reasoning=f"Null in {col} use {tool_name}",
+                    tool_id=tool_id,
+                    column=col_idx,
+                    row_id=row_idx,
+                )
+            if pd.notna(cell) and pd.notna(gt_cell) and str(cell) != str(gt_cell):
                 if str(cell).startswith("ERR_"):
-                    t = HEALTHCARE_SCHEMA.get(col,{}).get("type","str")
-                    tid = 0 if t in ("int","float") else 1
-                    return SurgeonAction(reasoning=f"Type error in '{col}'", tool_id=tid, column=ci, row_id=ri)
-                return SurgeonAction(reasoning=f"Format error in '{col}'", tool_id=3, column=ci, row_id=ri)
+                    col_type = HEALTHCARE_SCHEMA.get(col, {}).get("type", "str")
+                    tool_id = 0 if col_type in ("int", "float") else 1
+                    return SurgeonAction(
+                        reasoning=f"Type error in {col}",
+                        tool_id=tool_id,
+                        column=col_idx,
+                        row_id=row_idx,
+                    )
+                return SurgeonAction(
+                    reasoning=f"Format error in {col}",
+                    tool_id=3,
+                    column=col_idx,
+                    row_id=row_idx,
+                )
     if len(state) > len(gt):
-        return SurgeonAction(reasoning="Duplicate row → DELETE_ROW", tool_id=4, column=0, row_id=len(state)-1)
+        return SurgeonAction(reasoning="Duplicate row delete", tool_id=4, column=0, row_id=len(state) - 1)
     return SurgeonAction(reasoning="No errors detected", tool_id=7, column=0, row_id=0)
 
 
-def generate_episode(tier, session_state):
+def _naive_action(state):
+    cols = [c for c in state.columns if c != "_is_deleted"]
+    for row_idx in range(len(state)):
+        for col_idx, col in enumerate(cols):
+            cell = state.at[row_idx, col]
+            if pd.isna(cell):
+                return SurgeonAction(
+                    reasoning=f"Null in {col}",
+                    tool_id=0,
+                    column=col_idx,
+                    row_id=row_idx,
+                )
+            if str(cell).startswith("ERR_"):
+                return SurgeonAction(
+                    reasoning=f"Type error in {col}",
+                    tool_id=0,
+                    column=col_idx,
+                    row_id=row_idx,
+                )
+    return SurgeonAction(reasoning="No errors detected", tool_id=7, column=0, row_id=0)
+
+
+def _scenario_snapshot(dirty, gt, meta, tier):
+    env, accuracy = _build_env(dirty, gt, tier)
+    obs = env._make_observation()
+    cols = [c for c in dirty.columns if c != "_is_deleted"]
+    total_errors = obs.total_errors
+    dirty_display = dirty[cols].head(10).copy()
+    return {
+        "obs": obs,
+        "accuracy": accuracy,
+        "total_errors": total_errors,
+        "dirty_display": dirty_display,
+        "repaired_display": dirty_display.copy(),
+        "status_html": _status_html(tier, len(dirty), accuracy, "Scenario ready"),
+        "accuracy_html": _accuracy_html(accuracy, accuracy),
+        "brief_html": _brief_html(
+            meta=meta,
+            obs=obs,
+            agent_type="Scenario seeded",
+            note=TIER_LABELS.get(f"Tier {tier}", {}).get("description", ""),
+        ),
+    }
+
+
+def _seed_session(tier_label, session_state):
     session_state = dict(session_state or _new_state())
-    tier = int(tier)
-    c = Corruptor(); c.force_tier(tier)
+    tier_info = TIER_LABELS.get(tier_label, TIER_LABELS["Tier 1"])
+    tier = int(tier_info["tier"])
+    corruptor = Corruptor()
+    corruptor.force_tier(tier)
     sample = clean_data.sample(n=min(50, len(clean_data))).reset_index(drop=True)
-    dirty, gt, meta = c.generate_episode(sample)
+    dirty, gt, meta = corruptor.generate_episode(sample)
     gt = _align_dup_gt(dirty, gt, meta)
-    session_state.update({"dirty":dirty.copy(),"gt":gt.copy(),"meta":meta,"tier":tier})
+    session_state.update(
+        {
+            "dirty": dirty.copy(),
+            "gt": gt.copy(),
+            "meta": meta,
+            "tier": tier,
+        }
+    )
+    return session_state, dirty, gt, meta, tier
 
-    cols   = [c for c in dirty.columns if c != "_is_deleted"]
-    disp   = dirty[cols].head(8).copy()
-    _, tot = summarize_corruption(dirty[cols], HEALTHCARE_SCHEMA)
-    acc    = rc._field_accuracy(dirty, gt)
-    stats  = _scenario_stats_html(meta, acc, tot, tier)
-    return disp, stats, session_state
+
+def generate_episode(tier_label, session_state):
+    session_state, dirty, gt, meta, tier = _seed_session(tier_label, session_state)
+    snap = _scenario_snapshot(dirty, gt, meta, tier)
+    return (
+        snap["status_html"],
+        snap["dirty_display"],
+        snap["repaired_display"],
+        snap["accuracy_html"],
+        snap["brief_html"],
+        _empty_timeline_html(),
+        _diff_html(dirty, dirty, gt),
+        session_state,
+    )
 
 
-def simulate_agent(agent_type, session_state):
+def _live_grpo_action(env):
+    ok, message = load_llm()
+    if not ok:
+        raise RuntimeError(message)
+    obs = env._make_observation()
+    messages = [
+        {"role": "system", "content": build_prompt(obs)},
+        {"role": "user", "content": f"Observation: {obs.model_dump_json()}\nOutput valid JSON only."},
+    ]
+    output = _run_llm(messages)
+    raw = output[0]["generated_text"][-1]["content"]
+    return robust_parse_action(raw, require_fields=True)
+
+
+def simulate_with_repaired(agent_value, tier_label, session_state):
+    agent_type = _agent_label(agent_value)
     session_state = dict(session_state or _new_state())
-    if session_state.get("dirty") is None:
-        yield (_empty_rollout(),
-               _accuracy_display(None, None),
-               _diff_html(None, None, None),
-               session_state)
-        return
+    dirty = session_state.get("dirty")
+    gt = session_state.get("gt")
+    requested_tier = int(TIER_LABELS.get(tier_label, TIER_LABELS["Tier 1"])["tier"])
+    tier = int(session_state.get("tier", requested_tier))
+    meta = session_state.get("meta") or {}
 
-    dirty = session_state["dirty"].copy()
-    gt    = session_state["gt"].copy()
-    tier  = int(session_state.get("tier", 1))
-    env, acc_before = _build_env(dirty, gt, tier)
-    cols  = [c for c in env._state.columns if c != "_is_deleted"]
+    if dirty is None or gt is None or tier != requested_tier:
+        session_state, dirty, gt, meta, tier = _seed_session(tier_label, session_state)
+
+    env, acc_before = _build_env(dirty.copy(), gt.copy(), tier)
+    cols = [c for c in env._state.columns if c != "_is_deleted"]
     rollouts = []
-    MAX  = 5
 
-    for step_idx in range(MAX):
-        ro, acc_d, diff = _rollout_html(rollouts, dirty, env._state, gt, acc_before,
-                                        agent_type, MAX, step_idx+1)
-        yield ro, acc_d, diff, session_state
-
-        # ── Pick action
-        if agent_type == "Naive Baseline":
-            tr = tc = None; tid = 7; rsn = "No errors."
-            for ri in range(len(env._state)):
-                for ci, col in enumerate(cols):
-                    cell = env._state.at[ri, col]
-                    if pd.isna(cell):
-                        tr,tc,tid,rsn = ri,ci,0,"Null → IMPUTE_MEDIAN"; break
-                    if str(cell).startswith("ERR_"):
-                        tr,tc,tid,rsn = ri,ci,0,"Type error → IMPUTE_MEDIAN"; break
-                if tr is not None: break
-            action = SurgeonAction(reasoning=rsn, tool_id=tid,
-                                   column=tc if tc is not None else 0,
-                                   row_id=tr if tr is not None else 0)
-
-        elif agent_type == "Heuristic Surgeon":
-            action = heuristic_surgeon(env._state.copy(), gt)
-
-        else:
-            ok, msg = load_llm()
-            if not ok:
-                yield (f"<div class='err-banner'>{_e(msg)}</div>",
-                       _accuracy_display(acc_before, None),
-                       _diff_html(dirty, env._state, gt),
-                       session_state)
-                return
-            obs = env._make_observation()
-            messages = [
-                {"role":"system","content": build_prompt(obs)},
-                {"role":"user","content":f"Observation: {obs.model_dump_json()}\nOutput valid JSON only."},
-            ]
-            try:
-                out    = _run_llm(messages)
-                raw    = out[0]["generated_text"][-1]["content"]
-                action = robust_parse_action(raw, require_fields=True)
-            except Exception as exc:
-                action = SurgeonAction(reasoning=f"LLM error: {str(exc)[:40]}", tool_id=7, column=0, row_id=0)
+    for _ in range(MAX_UI_STEPS):
+        try:
+            if agent_type == "Naive Baseline":
+                action = _naive_action(env._state.copy())
+            elif agent_type == "Heuristic Surgeon":
+                action = heuristic_surgeon(env._state.copy(), gt)
+            else:
+                action = _live_grpo_action(env)
+        except Exception as exc:
+            yield (
+                _status_html(tier, len(env._state), acc_before, "Execution blocked"),
+                dirty[cols].head(10).copy(),
+                env._state[cols].head(10).copy(),
+                _accuracy_html(acc_before, None),
+                _brief_html(
+                    meta=meta,
+                    obs=env._make_observation(),
+                    agent_type=agent_type,
+                    note=f"Live model unavailable: {str(exc)[:120]}",
+                ),
+                _timeline_html(rollouts, MAX_UI_STEPS),
+                _diff_html(dirty, env._state, gt),
+                session_state,
+            )
+            return
 
         _, total_reward, done, info = env.step(action)
-        obs2 = env._make_observation()
-        rollouts.append({
-            "reasoning":        action.reasoning.replace("EXACT_PARSE: ",""),
-            "tool_name":        SURGEON_TOOLS.get(action.tool_id,{"name":"?"})["name"],
-            "reward":           total_reward,
-            "row_id":           action.row_id,
-            "column_name":      cols[action.column] if action.column < len(cols) else "?",
-            "components":       info.get("reward_components",{}),
-            "violation_type":   getattr(obs2,"violation_type",""),
-            "target_cell_hint": getattr(obs2,"target_cell_hint",""),
-        })
-
-        ro, acc_d, diff = _rollout_html(rollouts, dirty, env._state, gt, acc_before, agent_type, MAX)
-        yield ro, acc_d, diff, session_state
-        if done: break
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  CSS — MISSION CONTROL
-# ══════════════════════════════════════════════════════════════════════════════
-
-CSS = """
-:root {
-  --bg: #050505;
-  --panel: #0f0f0f;
-  --border: rgba(255,255,255,0.08);
-  --t1: #ffffff;
-  --t2: #a0a0a0;
-  --t3: #555555;
-  --g: #10b981;
-  --r: #ef4444;
-  --a: #f59e0b;
-  --bl: #3b82f6;
-  --body: "Inter", -apple-system, sans-serif;
-  --mono: "DM Mono", monospace;
-  --radius: 12px;
-}
-body {
-  background-color: var(--bg) !important;
-  font-family: var(--body) !important;
-  color: var(--t1) !important;
-  margin: 0;
-  padding: 0;
-}
-* { box-sizing: border-box; }
-
-/* Base Gradio Overrides */
-.gradio-container {
-  background-color: var(--bg) !important;
-  max-width: 1400px !important;
-  border: none !important;
-}
-
-/* Sidebar and Main */
-.sidebar {
-  background-color: var(--bg);
-  padding: 16px 24px;
-}
-.main-content {
-  background-color: var(--bg);
-  padding: 16px 24px;
-}
-
-/* Card/Panel Styling */
-.gradio-html, .gradio-dataframe, .gradio-accordion, .gradio-plot {
-  background-color: var(--panel) !important;
-  box-shadow: 0 0 0 1px var(--border), 0 4px 20px rgba(0,0,0,0.4) !important;
-  border: none !important;
-  border-radius: var(--radius) !important;
-  margin-bottom: 16px !important;
-  overflow: hidden !important;
-}
-
-/* Typography Overrides */
-.gradio-html * {
-  font-family: var(--body);
-}
-.pane-label {
-  font-family: var(--body);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--t3);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin-bottom: 12px;
-}
-
-/* Custom Radio Cards */
-.custom-radio {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-}
-.custom-radio .wrap {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 12px !important;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-.custom-radio label {
-  background: var(--panel) !important;
-  box-shadow: 0 0 0 1px var(--border) !important;
-  border-radius: var(--radius) !important;
-  padding: 16px 20px !important;
-  display: flex !important;
-  align-items: center !important;
-  cursor: pointer !important;
-  transition: all 0.2s ease !important;
-  margin: 0 !important;
-}
-.custom-radio label:hover {
-  background: #151515 !important;
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.15) !important;
-}
-.custom-radio label.selected {
-  box-shadow: 0 0 0 1px var(--border), inset 4px 0 0 var(--g) !important;
-  background: rgba(16,185,129,0.03) !important;
-}
-.custom-radio input[type="radio"] { display: none !important; }
-.custom-radio .ml-2 {
-  font-family: var(--body) !important;
-  font-weight: 500 !important;
-  color: var(--t1) !important;
-  font-size: 13px !important;
-  margin: 0 !important;
-  width: 100%;
-}
-
-/* Primary Button (Claude style) */
-button.primary {
-  background: #ffffff !important;
-  color: #000000 !important;
-  border: none !important;
-  border-radius: 8px !important;
-  padding: 14px 24px !important;
-  font-weight: 600 !important;
-  font-family: var(--body) !important;
-  font-size: 14px !important;
-  transition: all 0.2s ease !important;
-  box-shadow: 0 4px 15px rgba(255,255,255,0.1) !important;
-  width: 100% !important;
-}
-button.primary:hover {
-  background: #e0e0e0 !important;
-  transform: translateY(-1px) !important;
-  box-shadow: 0 6px 20px rgba(255,255,255,0.15) !important;
-}
-
-/* Accordion */
-.gradio-accordion > label {
-  background-color: var(--panel) !important;
-  color: var(--t1) !important;
-  font-weight: 500 !important;
-  font-size: 14px !important;
-  padding: 16px 24px !important;
-  border-bottom: 1px solid var(--border) !important;
-}
-
-/* Dataframe */
-.table-wrap { background: transparent !important; border: none !important; }
-.dt { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
-.dt th { padding: 10px 16px; background: rgba(255,255,255,0.02); color: var(--t3); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); text-align: left; }
-.dt td { padding: 10px 16px; color: var(--t2); border-bottom: 1px solid rgba(255,255,255,0.02); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Topbar & Header */
-.topbar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 20px 24px; background: var(--panel);
-  box-shadow: 0 0 0 1px var(--border); border-radius: var(--radius);
-  margin-bottom: 24px;
-}
-.tb-title { font-size: 18px; font-weight: 600; color: var(--t1); display: flex; align-items: center; gap: 10px; }
-.tb-stats { display: flex; gap: 24px; }
-.tbs-item { display: flex; flex-direction: column; gap: 4px; }
-.tbs-lbl { font-size: 10px; color: var(--t3); text-transform: uppercase; letter-spacing: 0.05em; }
-.tbs-val { font-family: var(--mono); font-size: 14px; color: var(--t1); }
-
-/* Status Strip */
-.status-strip {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 24px; background: var(--panel);
-  box-shadow: 0 0 0 1px var(--border); border-radius: var(--radius);
-  font-family: var(--mono); font-size: 12px; color: var(--t2);
-  margin-bottom: 16px;
-}
-.status-strip span b { color: var(--t1); font-weight: 500; }
-
-/* Streaming Rollout */
-.ro-traj { display: flex; flex-direction: column; gap: 8px; padding: 16px 24px; }
-.tr-row {
-  display: grid; grid-template-columns: 40px 1fr auto auto 60px;
-  align-items: center; gap: 16px; padding: 12px 16px;
-  background: rgba(255,255,255,0.02); border-radius: var(--radius); border-left: 2px solid transparent;
-}
-.tr-win  { border-left-color: var(--g); background: rgba(16,185,129,0.05); }
-.tr-loss { border-left-color: var(--r); background: rgba(239,68,68,0.05); }
-.tr-n    { font-family: var(--mono); font-size: 11px; color: var(--t3); }
-.tr-rsn  { font-family: var(--body); font-size: 13px; color: var(--t1); font-style: italic; line-height: 1.4; }
-.tr-tool { font-family: var(--mono); font-size: 11px; color: var(--t1); background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 4px; }
-.tr-loc  { font-family: var(--mono); font-size: 11px; color: var(--t3); }
-.tr-rew  { font-family: var(--mono); font-size: 13px; font-weight: 500; text-align: right; }
-.tr-rew-pos { color: var(--g); }
-.tr-rew-neg { color: var(--r); }
-.rot-empty  { padding: 24px; text-align: center; color: var(--t3); font-size: 13px; font-style: italic; }
-
-/* Benchmark & Rings */
-.bm-root { padding: 24px; }
-.bm-lane { margin-bottom: 16px; }
-.bm-meta { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; }
-.bm-track { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; }
-.bm-bar { height: 100%; border-radius: 2px; background: var(--g); }
-
-.diff-root { display: flex; flex-direction: column; gap: 16px; padding: 24px; }
-.diff-stats-row { display: flex; gap: 16px; }
-.dsr-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; background: rgba(255,255,255,0.02); padding: 16px; border-radius: 8px; }
-.dsr-val { font-family: var(--mono); font-size: 24px; color: var(--t1); font-weight: 500; }
-.dsr-label { font-size: 10px; color: var(--t3); text-transform: uppercase; letter-spacing: 0.05em; }
-
-/* API Section */
-.api-block { background: #000; padding: 16px; border-radius: var(--radius); font-family: var(--mono); font-size: 12px; color: var(--t2); margin-top: 12px; overflow-x: auto; box-shadow: inset 0 0 0 1px var(--border); }
-.api-block code { color: var(--g); }
-.api-desc { font-size: 13px; color: var(--t2); margin-bottom: 8px; }
-
-/* Legacy Fallbacks to keep old elements from breaking */
-.err-banner { padding:20px; background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.2); border-radius:var(--radius); font-family:var(--mono); font-size:11px; color:var(--r); }
-.empty-center { padding:40px 20px; text-align:center; color:var(--t3); }
-.ro-dna { padding:16px; }
-.dna-head { font-family:var(--mono); font-size:10px; color:var(--t3); text-transform:uppercase; margin-bottom:12px; }
-.dna-r { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
-.dna-lbl { width:100px; font-family:var(--mono); font-size:11px; color:var(--t2); }
-.dna-track { flex:1; height:4px; background:rgba(255,255,255,0.1); border-radius:2px; }
-.dna-fill { height:100%; border-radius:2px; background:var(--g); }
-.df-n { background:var(--r); }
-.dna-v { width:40px; text-align:right; font-family:var(--mono); font-size:11px; }
-
-"""
-
-def _api_section_html():
-    return """
-    <div style="padding: 12px 24px 24px 24px;">
-        <div class="api-desc">DataForge Arena provides a full OpenEnv REST API for programmatic evaluation.</div>
-        
-        <div class="api-desc" style="margin-top: 24px;"><b>Reset environment (cURL)</b></div>
-        <div class="api-block">
-<pre>curl -X POST https://vivek567-dataforge-arena.hf.space/reset \
-  -H "Content-Type: application/json" \
-  -d '{"tier": 1}'</pre>
-        </div>
-        
-        <div class="api-desc" style="margin-top: 24px;"><b>Execute one repair step (cURL)</b></div>
-        <div class="api-block">
-<pre>curl -X POST https://vivek567-dataforge-arena.hf.space/step \
-  -H "Content-Type: application/json" \
-  -d '{"reasoning": "age 145 exceeds schema max 120", "tool_id": 3, "column": 2, "row_id": 7}'</pre>
-        </div>
-
-        <div class="api-desc" style="margin-top: 24px;"><b>Python Requests Example</b></div>
-        <div class="api-block">
-<pre>import requests
-
-BASE = "https://vivek567-dataforge-arena.hf.space"
-obs = requests.post(f"{BASE}/reset", json={"tier": 1}).json()
-
-for step in range(5):
-    action = {"reasoning": "...", "tool_id": 3, "column": 2, "row_id": 7}
-    result = requests.post(f"{BASE}/step", json=action).json()
-    print(f"Step {step+1} reward: {result['reward']:.3f}")</pre>
-        </div>
-    </div>
-    """
-
-def build_demo():
-    choices = available_agent_choices()
-    default = "Live GRPO Model · Trained on 265 RL steps [GRPO]" if "Live GRPO Model" in choices else "Heuristic Surgeon · Rule-based constraint-aware repairs [DETERMINISTIC]"
-
-    agent_choices = [
-        "Naive Baseline · Greedy imputation, no schema awareness [BASELINE]",
-        "Heuristic Surgeon · Rule-based constraint-aware repairs [DETERMINISTIC]",
-    ]
-    if "Live GRPO Model" in choices:
-        agent_choices.append("Live GRPO Model · Trained on 265 RL steps [GRPO]")
-    else:
-        agent_choices.append("Live GRPO Model · Checkpoint Required [UNAVAILABLE]")
-
-    tier_choices = [
-        "Tier 1 · Nulls, type errors, range violations",
-        "Tier 2 · FK mismatches, temporal drift",
-        "Tier 3 · Full relational reasoning",
-    ]
-
-    with gr.Blocks(title="DataForge Arena", css=CSS, theme=gr.themes.Base()) as demo:
-        state = gr.State(_new_state())
-        
-        # Header bar (keep existing _topbar_html() logic)
-        topbar = gr.HTML(_topbar_html())
-        
-        with gr.Row(equal_height=False):
-            # LEFT SIDEBAR
-            with gr.Column(scale=1, min_width=320, elem_classes=["sidebar"]):
-                gr.HTML("<div class='pane-label'>Agent Selection</div>")
-                agent_pick = gr.Radio(choices=agent_choices, value=default, label="", interactive=True, elem_classes=["custom-radio"])
-                
-                gr.HTML("<div class='pane-label' style='margin-top:32px;'>Scenario Complexity</div>")
-                tier_pick = gr.Radio(choices=tier_choices, value="Tier 1 · Nulls, type errors, range violations", label="", interactive=True, elem_classes=["custom-radio"])
-                
-                gen_btn = gr.Button("Create New Scenario", variant="primary", elem_classes=["primary"])
-                
-                gr.HTML("<div class='pane-label' style='margin-top:40px;'>Benchmark Performance</div>")
-                bench_html = gr.HTML(_benchmark_html())
-                
-                gr.HTML("<div class='pane-label' style='margin-top:32px;'>Training Convergence · 265 steps</div>")
-                reward_spark = gr.LinePlot(x="step", y="total_reward", height=150, x_title="Step", y_title="Reward", tooltip=["step", "total_reward"])
-            
-            # MAIN CONTENT
-            with gr.Column(scale=3, elem_classes=["main-content"]):
-                # Status strip
-                status_strip = gr.HTML("<div class='status-strip'><span>Tier: <b>1</b></span><span>Status: <b>Waiting</b></span><span>Target Rows: <b>--</b></span></div>")
-                
-                # Data view (collapsible)
-                with gr.Accordion("Live Corrupted Dataset", open=True):
-                    dirty_view = gr.Dataframe(label="", interactive=False, wrap=False)
-                
-                # Execute button
-                exec_btn = gr.Button("▶ Execute Repair Policy", variant="primary", size="lg", elem_classes=["primary"])
-                
-                # Streaming output
-                rollout_out = gr.HTML(_empty_rollout())
-                
-                # Results row
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        acc_display = gr.HTML(_accuracy_display(None, None))
-                    with gr.Column(scale=2):
-                        repaired_view = gr.Dataframe(label="", interactive=False, wrap=False)
-                
-                diff_out = gr.HTML(_diff_html(None, None, None))
-        
-        # API section at bottom
-        with gr.Accordion("Developer API", open=False):
-            gr.HTML(_api_section_html())
-        
-        # --- Logic Wiring ---
-        def load_dash():
-            df = get_training_data()
-            return _topbar_html(), _benchmark_html(), df
-        
-        def on_gen(t_val, session_state):
-            tier = 1
-            if "Tier 2" in t_val: tier = 2
-            elif "Tier 3" in t_val: tier = 3
-
-            s_out = _new_state()
-            s_out["tier"] = tier
-            dirty, gt, acc = generate_episode(tier)
-            s_out["dirty"] = dirty
-            s_out["gt"]    = gt
-            
-            stats = f"<div class='status-strip'><span>Tier: <b>{tier}</b></span><span>Rows: <b>{len(dirty)}</b></span><span>Initial Acc: <b>{acc*100:.1f}%</b></span></div>"
-            return dirty.head(8), stats, s_out, _empty_rollout(), _accuracy_display(acc, acc), dirty.head(8), _diff_html(dirty, dirty, gt)
-
-        gen_outs = [dirty_view, status_strip, state, rollout_out, acc_display, repaired_view, diff_out]
-        gen_btn.click(fn=on_gen, inputs=[tier_pick, state], outputs=gen_outs)
-
-        def simulate_with_repaired(agent_val, session_state):
-            if "Naive Baseline" in agent_val: agent_type = "Naive Baseline"
-            elif "Heuristic Surgeon" in agent_val: agent_type = "Heuristic Surgeon"
-            else: agent_type = "Live GRPO Model"
-
-            session_state = dict(session_state or _new_state())
-            dirty  = session_state.get("dirty")
-            gt     = session_state.get("gt")
-            tier   = int(session_state.get("tier", 1))
-
-            if dirty is None:
-                yield (_empty_rollout(), _accuracy_display(None,None),
-                       _diff_html(None,None,None), None, session_state)
-                return
-
-            env, acc_before = _build_env(dirty.copy(), gt.copy(), tier)
-            cols     = [c for c in env._state.columns if c != "_is_deleted"]
-            rollouts = []
-            MAX      = 5
-
-            for step_idx in range(MAX):
-                ro, acc_d, diff = _rollout_html(rollouts, dirty, env._state, gt, acc_before,
-                                                agent_type, MAX, step_idx+1)
-                repaired = env._state[cols].head(8).copy()
-                yield ro, acc_d, diff, repaired, session_state
-
-                if agent_type == "Naive Baseline":
-                    tr=tc=None; tid=7; rsn="No errors."
-                    for ri in range(len(env._state)):
-                        for ci, col in enumerate(cols):
-                            cell = env._state.at[ri, col]
-                            if pd.isna(cell):     tr,tc,tid,rsn=ri,ci,0,"Null->IMPUTE_MEDIAN"; break
-                            if str(cell).startswith("ERR_"): tr,tc,tid,rsn=ri,ci,0,"ERR->IMPUTE_MEDIAN"; break
-                        if tr is not None: break
-                    action = SurgeonAction(reasoning=rsn,tool_id=tid,
-                                           column=tc if tc is not None else 0,
-                                           row_id=tr if tr is not None else 0)
-                elif agent_type == "Heuristic Surgeon":
-                    action = heuristic_surgeon(env._state.copy(), gt)
-                else:
-                    ok,msg = load_llm()
-                    if not ok:
-                        yield (f"<div class='err-banner'>{_e(msg)}</div>",
-                               _accuracy_display(acc_before,None),
-                               _diff_html(dirty,env._state,gt), None, session_state)
-                        return
-                    obs = env._make_observation()
-                    msgs = [{"role":"system","content":build_prompt(obs)},
-                            {"role":"user","content":f"Observation: {obs.model_dump_json()}\nOutput valid JSON only."}]
-                    try:
-                        out  = _run_llm(msgs)
-                        raw  = out[0]["generated_text"][-1]["content"]
-                        action = robust_parse_action(raw, require_fields=True)
-                    except Exception as exc:
-                        action = SurgeonAction(reasoning=f"LLM error: {str(exc)[:40]}",tool_id=7,column=0,row_id=0)
-
-                _, total_reward, done, info = env.step(action)
-                obs2 = env._make_observation()
-                rollouts.append({
-                    "reasoning":        action.reasoning.replace("EXACT_PARSE:","").strip(),
-                    "tool_name":        SURGEON_TOOLS.get(action.tool_id,{"name":"?"})["name"],
-                    "reward":           total_reward,
-                    "row_id":           action.row_id,
-                    "column_name":      cols[action.column] if action.column < len(cols) else "?",
-                    "components":       info.get("reward_components",{}),
-                    "violation_type":   getattr(obs2,"violation_type",""),
-                    "target_cell_hint": getattr(obs2,"target_cell_hint",""),
-                })
-
-                ro, acc_d, diff = _rollout_html(rollouts, dirty, env._state, gt, acc_before, agent_type, MAX)
-                repaired = env._state[cols].head(8).copy()
-                yield ro, acc_d, diff, repaired, session_state
-                if done: break
-
-        exec_btn.click(
-            fn=simulate_with_repaired,
-            inputs=[agent_pick, state],
-            outputs=[rollout_out, acc_display, diff_out, repaired_view, state],
+        obs = env._make_observation()
+        components = info.get("reward_components", {})
+        rollouts.append(
+            {
+                "reasoning": action.reasoning.replace("EXACT_PARSE:", "").strip(),
+                "tool_name": SURGEON_TOOLS.get(action.tool_id, {"name": "?"})["name"],
+                "reward": total_reward,
+                "row_id": action.row_id,
+                "column_name": cols[action.column] if action.column < len(cols) else "?",
+                "components": components,
+                "violation_type": getattr(obs, "violation_type", ""),
+                "target_cell_hint": getattr(obs, "target_cell_hint", ""),
+            }
         )
 
-        demo.load(fn=load_dash, outputs=[topbar, bench_html, reward_spark])
+        current_acc = rc._field_accuracy(env._state, gt)
+        note = "Last action executed cleanly."
+        if info.get("invalid_action"):
+            note = "Agent produced an invalid action."
+        yield (
+            _status_html(tier, len(env._state), current_acc, f"{agent_type} step {len(rollouts)}/{MAX_UI_STEPS}"),
+            dirty[cols].head(10).copy(),
+            env._state[cols].head(10).copy(),
+            _accuracy_html(acc_before, current_acc),
+            _brief_html(
+                meta=meta,
+                obs=obs,
+                agent_type=agent_type,
+                note=note,
+            ),
+            _timeline_html(rollouts, MAX_UI_STEPS),
+            _diff_html(dirty, env._state, gt),
+            session_state,
+        )
+        if done:
+            break
+
+
+def _load_initial_view():
+    session_state, dirty, gt, meta, tier = _seed_session("Tier 1", _new_state())
+    snap = _scenario_snapshot(dirty, gt, meta, tier)
+    return (
+        _hero_html(),
+        _benchmark_html(),
+        get_training_data(),
+        snap["status_html"],
+        snap["dirty_display"],
+        snap["repaired_display"],
+        snap["accuracy_html"],
+        snap["brief_html"],
+        _empty_timeline_html(),
+        _diff_html(dirty, dirty, gt),
+        session_state,
+    )
+
+
+CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #06070a;
+  --bg-2: #0d1015;
+  --panel: rgba(15, 18, 24, 0.88);
+  --panel-2: rgba(21, 25, 32, 0.92);
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #f5f7fb;
+  --muted: #9aa3b2;
+  --soft: #6b7280;
+  --emerald: #3ddc97;
+  --gold: #f2c66d;
+  --red: #ff6b6b;
+  --shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+}
+
+body {
+  background:
+    linear-gradient(180deg, #050608 0%, #07090d 40%, #06070a 100%) !important;
+  color: var(--text) !important;
+  font-family: "Manrope", sans-serif !important;
+}
+
+.gradio-container {
+  max-width: 1520px !important;
+  background: transparent !important;
+  padding: 28px 24px 48px !important;
+}
+
+.gradio-container * {
+  font-family: "Manrope", sans-serif;
+}
+
+.gradio-container .monospace,
+.gradio-container code,
+.gradio-container pre,
+.diff-table,
+.timeline-components {
+  font-family: "IBM Plex Mono", monospace !important;
+}
+
+.gradio-html,
+.gradio-dataframe,
+.gradio-plot {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.hero-shell {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 24px;
+  padding: 30px 34px;
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.015)),
+    linear-gradient(180deg, rgba(15,18,24,0.96), rgba(11,13,18,0.92));
+  box-shadow: var(--shadow);
+}
+
+.hero-kicker,
+.section-tag {
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.hero-title {
+  margin: 12px 0 8px;
+  font-size: 54px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.hero-subtitle {
+  margin: 0;
+  max-width: 760px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+.hero-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.hero-pill {
+  padding: 10px 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hero-panel {
+  padding: 22px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+}
+
+.hero-panel-label {
+  color: var(--soft);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+.hero-panel-title {
+  margin-top: 12px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.hero-panel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.hero-panel-grid span,
+.benchmark-note,
+.brief-caption,
+.metric-note,
+.timeline-note,
+.diff-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.hero-panel-grid strong,
+.metric-grid strong,
+.brief-grid strong,
+.status-item strong,
+.diff-stats strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 16px;
+}
+
+.control-shell,
+.surface-shell {
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.surface-shell {
+  background: linear-gradient(180deg, rgba(16,18,24,0.96), rgba(12,14,19,0.94));
+}
+
+.pane-heading {
+  margin: 0 0 8px;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.pane-copy {
+  margin: 0 0 20px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.guide-grid {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 24px;
+}
+
+.guide-card {
+  padding: 14px 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  background: rgba(255,255,255,0.03);
+}
+
+.guide-card strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.guide-card span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.gradio-radio {
+  gap: 10px !important;
+}
+
+.gradio-radio label {
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  background: rgba(255,255,255,0.035) !important;
+  border-radius: 18px !important;
+  padding: 14px 16px !important;
+}
+
+.gradio-radio label.selected {
+  background: rgba(61, 220, 151, 0.12) !important;
+  border-color: rgba(61, 220, 151, 0.35) !important;
+}
+
+button.primary {
+  min-height: 56px !important;
+  border-radius: 16px !important;
+  border: none !important;
+  background: linear-gradient(135deg, #f5f7fb, #dfe5f0) !important;
+  color: #0b0d12 !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  box-shadow: 0 18px 35px rgba(245, 247, 251, 0.12) !important;
+}
+
+button.primary:hover {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+}
+
+.status-shell,
+.metric-shell,
+.brief-shell,
+.timeline-shell,
+.diff-shell,
+.benchmark-shell {
+  padding: 22px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 20px;
+  background: var(--panel-2);
+}
+
+.status-shell,
+.diff-stats,
+.metric-grid,
+.brief-grid,
+.benchmark-footer {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.status-item span,
+.metric-grid span,
+.brief-grid span,
+.diff-stats span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.metric-title,
+.brief-title,
+.timeline-title,
+.diff-title,
+.section-title {
+  margin: 8px 0 14px;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.metric-track {
+  height: 8px;
+  margin-top: 18px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+
+.metric-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--emerald), #8af0c0);
+}
+
+.good {
+  color: var(--emerald);
+}
+
+.bad {
+  color: var(--red);
+}
+
+.brief-hint,
+.brief-note {
+  margin: 10px 0 0;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.timeline-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.timeline-row:first-of-type {
+  border-top: none;
+}
+
+.timeline-step {
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.timeline-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: baseline;
+}
+
+.timeline-reward {
+  font-weight: 800;
+}
+
+.timeline-meta {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.timeline-reason {
+  margin-top: 10px;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.timeline-components {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diff-table-wrap {
+  overflow-x: auto;
+}
+
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 18px;
+  font-size: 12px;
+}
+
+.diff-table th,
+.diff-table td {
+  text-align: left;
+  padding: 12px 10px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.diff-table th {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+}
+
+.benchmark-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: baseline;
+  padding: 14px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.benchmark-row:first-of-type {
+  border-top: none;
+}
+
+.benchmark-name {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.benchmark-value {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.benchmark-muted {
+  color: var(--muted);
+}
+
+.benchmark-good {
+  color: var(--emerald);
+}
+
+.benchmark-footer {
+  margin-top: 18px;
+}
+
+.benchmark-footer span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.benchmark-footer strong {
+  color: var(--text);
+}
+
+.table-wrap,
+.gradio-dataframe,
+.gradio-plot {
+  border-radius: 18px !important;
+}
+
+.gradio-dataframe {
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  background: rgba(255,255,255,0.02) !important;
+}
+
+@media (max-width: 1100px) {
+  .hero-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .status-shell,
+  .diff-stats,
+  .metric-grid,
+  .brief-grid,
+  .benchmark-footer {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .timeline-row {
+    grid-template-columns: 1fr;
+  }
+}
+"""
+
+
+def build_demo():
+    available = available_agent_choices()
+    default_agent = "Heuristic Surgeon"
+    if "Live GRPO Model" in available:
+        default_agent = "Live GRPO Model"
+
+    with gr.Blocks(title="DataForge Arena") as demo:
+        state = gr.State(_new_state())
+
+        hero = gr.HTML(_hero_html())
+
+        with gr.Row(equal_height=False):
+            with gr.Column(scale=4):
+                gr.HTML(
+                    """
+<section class="control-shell">
+  <div class="section-tag">Control room</div>
+  <h2 class="pane-heading">Run a live repair episode</h2>
+  <p class="pane-copy">
+    Choose a repair policy, select corruption depth, and watch every reward-bearing action land on the table.
+  </p>
+  <div class="guide-grid">
+    <div class="guide-card"><strong>Naive Baseline</strong><span>Greedy cell cleanup with no schema reasoning.</span></div>
+    <div class="guide-card"><strong>Heuristic Surgeon</strong><span>Rule-based path that tracks constraint classes.</span></div>
+    <div class="guide-card"><strong>Live GRPO Model</strong><span>Checkpoint-backed inference when weights are present.</span></div>
+  </div>
+</section>
+"""
+                )
+                agent_pick = gr.Radio(
+                    choices=available,
+                    value=default_agent,
+                    label="Repair policy",
+                )
+                tier_pick = gr.Radio(
+                    choices=list(TIER_LABELS.keys()),
+                    value="Tier 1",
+                    label="Complexity",
+                )
+                new_btn = gr.Button("Seed New Scenario", variant="primary", elem_classes=["primary"])
+                run_btn = gr.Button("Execute Repair Policy", variant="primary", elem_classes=["primary"])
+                benchmark = gr.HTML(_benchmark_html())
+                reward_plot = gr.LinePlot(
+                    value=get_training_data(),
+                    x="step",
+                    y="total_reward",
+                    title="Training reward trajectory",
+                    height=220,
+                    x_title="Step",
+                    y_title="Reward",
+                    tooltip=["step", "total_reward"],
+                )
+
+            with gr.Column(scale=8):
+                status_html = gr.HTML(_status_html(1, None, None, "Generate a scenario"))
+                with gr.Row():
+                    accuracy_html = gr.HTML(_accuracy_html(None, None))
+                    brief_html = gr.HTML(_brief_html())
+                with gr.Row():
+                    dirty_view = gr.Dataframe(
+                        label="Corrupted dataset slice",
+                        interactive=False,
+                        wrap=False,
+                    )
+                    repaired_view = gr.Dataframe(
+                        label="Repaired state",
+                        interactive=False,
+                        wrap=False,
+                    )
+                timeline_html = gr.HTML(_empty_timeline_html())
+                diff_html = gr.HTML(_diff_html(None, None, None))
+
+        def on_generate(tier_value, session_value):
+            return generate_episode(tier_value, session_value)
+
+        def on_execute(agent_value, tier_value, session_value):
+            yield from simulate_with_repaired(agent_value, tier_value, session_value)
+
+        new_btn.click(
+            fn=on_generate,
+            inputs=[tier_pick, state],
+            outputs=[
+                status_html,
+                dirty_view,
+                repaired_view,
+                accuracy_html,
+                brief_html,
+                timeline_html,
+                diff_html,
+                state,
+            ],
+        )
+
+        run_btn.click(
+            fn=on_execute,
+            inputs=[agent_pick, tier_pick, state],
+            outputs=[
+                status_html,
+                dirty_view,
+                repaired_view,
+                accuracy_html,
+                brief_html,
+                timeline_html,
+                diff_html,
+                state,
+            ],
+        )
+
+        demo.load(
+            fn=_load_initial_view,
+            outputs=[
+                hero,
+                benchmark,
+                reward_plot,
+                status_html,
+                dirty_view,
+                repaired_view,
+                accuracy_html,
+                brief_html,
+                timeline_html,
+                diff_html,
+                state,
+            ],
+        )
 
     return demo
+
+
+demo = build_demo()
+
+
 if __name__ == "__main__":
     server_name = os.getenv("GRADIO_SERVER_NAME", "0.0.0.0")
     server_port = int(os.getenv("PORT", os.getenv("GRADIO_SERVER_PORT", "7860")))
     demo.queue(default_concurrency_limit=8).launch(
-        server_name=server_name, 
+        server_name=server_name,
         server_port=server_port,
+        show_error=True,
+        theme=gr.themes.Base(),
         css=CSS,
-        theme=gr.themes.Base()
+        footer_links=["gradio", "settings"],
     )

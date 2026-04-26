@@ -1,19 +1,19 @@
-SYSTEM_PROMPT = """You are DataSurgeon — an autonomous data cleaning agent.
+SYSTEM_PROMPT = """You are DataSurgeon - an autonomous data cleaning agent.
 Your world model: you understand schema types, value ranges, FK constraints, and statistical distributions.
 You observe ONE corrupted cell. Reason causally. Output ONE JSON action.
 
 SCHEMA-TOOL MAPPING (memorize this):
-- Cell is NULL + column type int/float → tool_id=0 (IMPUTE_MEDIAN)
-- Cell is NULL + column type str/date/email → tool_id=1 (IMPUTE_MODE)
-- Cell has ERR_ prefix or wrong type → tool_id=3 (CORRECT_FORMAT)
-- Cell value exceeds schema range → tool_id=3 (CORRECT_FORMAT)
-- Cell violates enum constraint (wrong currency/status) → tool_id=3 (CORRECT_FORMAT)
-- FK mismatch (dept_id ↔ dept_name inconsistent) → tool_id=3 (CORRECT_FORMAT)
-- No errors present → tool_id=7 (NO_OP)
-- Row is >60% corrupted → tool_id=4 (DELETE_ROW)
-- Near-duplicate row → tool_id=5 (MERGE_DUPLICATE)
+- Cell is NULL + column type int/float -> tool_id=0 (IMPUTE_MEDIAN)
+- Cell is NULL + column type str/date/email -> tool_id=1 (IMPUTE_MODE)
+- Cell has ERR_ prefix or wrong type -> tool_id=3 (CORRECT_FORMAT)
+- Cell value exceeds schema range -> tool_id=3 (CORRECT_FORMAT)
+- Cell violates enum constraint (wrong currency/status) -> tool_id=3 (CORRECT_FORMAT)
+- FK mismatch (dept_id <-> dept_name inconsistent) -> tool_id=3 (CORRECT_FORMAT)
+- No errors present -> tool_id=7 (NO_OP)
+- Row is >60% corrupted -> tool_id=4 (DELETE_ROW)
+- Near-duplicate row -> tool_id=5 (MERGE_DUPLICATE)
 
-OUTPUT FORMAT — single line JSON, no markdown, no extra text:
+OUTPUT FORMAT - single line JSON, no markdown, no extra text:
 {"reasoning":"<column_name> <violation> <repair_logic> max 12 words","tool_id":<0-7>,"column":<int>,"row_id":<int>}
 
 REASONING EXAMPLES (good):
@@ -32,22 +32,22 @@ RULES:
 
 
 def build_prompt(obs) -> str:
-    target_hint = getattr(obs, 'target_cell_hint', '')
-    violation_type = getattr(obs, 'violation_type', '')
-    column_stats = getattr(obs, 'column_stats', '')
+    target_hint = getattr(obs, "target_cell_hint", "")
+    violation_type = getattr(obs, "violation_type", "")
+    column_stats = getattr(obs, "column_stats", "")
 
     violation_guidance = {
-        "null_numeric":    "→ This is a null in a numeric column. Use tool_id=0 (IMPUTE_MEDIAN).",
-        "null_categorical":"→ This is a null in a string/date column. Use tool_id=1 (IMPUTE_MODE).",
-        "range":           "→ Value exceeds schema range constraint. Use tool_id=3 (CORRECT_FORMAT).",
-        "type_error":      "→ Value has wrong type or ERR_ prefix. Use tool_id=3 (CORRECT_FORMAT).",
-        "enum_violation":  "→ Value not in allowed enum list. Use tool_id=3 (CORRECT_FORMAT).",
-        "fk_mismatch":     "→ Foreign key inconsistency detected. Use tool_id=3 (CORRECT_FORMAT).",
-        "clean":           "→ No violations detected. Use tool_id=7 (NO_OP).",
+        "null_numeric": "-> This is a null in a numeric column. Use tool_id=0 (IMPUTE_MEDIAN).",
+        "null_categorical": "-> This is a null in a string/date column. Use tool_id=1 (IMPUTE_MODE).",
+        "range": "-> Value exceeds schema range constraint. Use tool_id=3 (CORRECT_FORMAT).",
+        "type_error": "-> Value has wrong type or ERR_ prefix. Use tool_id=3 (CORRECT_FORMAT).",
+        "enum_violation": "-> Value not in allowed enum list. Use tool_id=3 (CORRECT_FORMAT).",
+        "fk_mismatch": "-> Foreign key inconsistency detected. Use tool_id=3 (CORRECT_FORMAT).",
+        "clean": "-> No violations detected. Use tool_id=7 (NO_OP).",
     }.get(violation_type, "")
 
-    col_stats_line  = f"\nColumn distribution: {column_stats}" if column_stats else ""
-    violation_line  = f"\nViolation detected: {violation_type} {violation_guidance}" if violation_type else ""
+    col_stats_line = f"\nColumn distribution: {column_stats}" if column_stats else ""
+    violation_line = f"\nViolation detected: {violation_type} {violation_guidance}" if violation_type else ""
 
     return f"""{SYSTEM_PROMPT}
 
@@ -55,6 +55,7 @@ def build_prompt(obs) -> str:
 EPISODE:
 Schema: {obs.schema_str}
 Errors: {obs.total_errors} | Step: {obs.step_count}/{obs.max_steps} | Difficulty: {obs.difficulty}/3
+Errors remaining: {obs.errors_remaining} | Last repair delta: {obs.last_step_delta:+.4f}
 
 TARGET: {target_hint}{violation_line}{col_stats_line}
 

@@ -76,22 +76,22 @@ def test_column_null_rate_limit(corruptor, clean_df):
 def test_tier_transitions(corruptor):
     assert corruptor.current_tier() == 1
     # Before step gate: even with high reward, should not escalate
-    corruptor._epoch = 79
+    corruptor._epoch = 39
     corruptor._recent_rewards.extend([3.0] * 20)
     corruptor._consecutive_above = 0
     corruptor._update_tier()
     assert corruptor.current_tier() == 1
 
     # After step gate with sustained high reward for enough consecutive updates
-    corruptor._epoch = 81
-    corruptor._consecutive_above = 9  # need 10 consecutive
+    corruptor._epoch = 41
+    corruptor._consecutive_above = 4  # need 5 consecutive
     corruptor._update_tier()
     assert corruptor.current_tier() == 2
 
     # Tier 2 → 3: need step >= 180 and rolling avg > 3.5 for 10 consecutive
-    corruptor._epoch = 181
+    corruptor._epoch = 121
     corruptor._recent_rewards.extend([4.0] * 20)
-    corruptor._consecutive_above = 9
+    corruptor._consecutive_above = 4
     corruptor._update_tier()
     assert corruptor.current_tier() == 3
 
@@ -106,11 +106,11 @@ def test_force_tier_enables_requested_corruptions(corruptor, clean_df):
 
 
 def test_corruptor_is_transitioning(corruptor):
-    corruptor._epoch = 85
+    corruptor._epoch = 42
     assert corruptor.is_transitioning()
-    corruptor._epoch = 95
+    corruptor._epoch = 48
     assert not corruptor.is_transitioning()
-    corruptor._epoch = 185
+    corruptor._epoch = 123
     assert corruptor.is_transitioning()
 
 
@@ -137,6 +137,24 @@ def test_accuracy_delta_positive_on_fix(clean_df):
     dirty.at[0, "age"] = clean_df.at[0, "age"]
     curr_acc = rc._field_accuracy(dirty, clean_df)
     assert curr_acc > prev_acc
+
+
+def test_constraint_alignment_fires_on_null_impute():
+    rc = RewardComputer()
+    schema = {"age": {"type": "int", "range": [0, 120]}}
+    state = pd.DataFrame({"age": [None, 45, 60]})
+    action = SurgeonAction(reasoning="null age needs imputation", tool_id=0, column=0, row_id=0)
+    score = rc._score_constraint_alignment(action, state, state, schema)
+    assert score > 0, f"Expected positive score for correct null imputation, got {score}"
+
+
+def test_constraint_alignment_penalises_wrong_tool_on_null():
+    rc = RewardComputer()
+    schema = {"age": {"type": "int", "range": [0, 120]}}
+    state = pd.DataFrame({"age": [None, 45, 60]})
+    action = SurgeonAction(reasoning="fix format", tool_id=3, column=0, row_id=0)
+    score = rc._score_constraint_alignment(action, state, state, schema)
+    assert score < 0, f"Expected negative score for CORRECT_FORMAT on null, got {score}"
 
 
 

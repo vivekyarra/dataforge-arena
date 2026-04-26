@@ -4,7 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 from openenv.env import Env as BaseEnv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from environment.corruptor import Corruptor
 from environment.reward import RewardComputer
@@ -28,9 +28,12 @@ class DataForgeObservation(BaseModel):
     total_rows: int
     total_errors: int
     error_rate_pct: float
-    action_history: list
+    action_history: list = Field(default_factory=list)
     violation_type: str = ""
     column_stats: str = ""
+    target_cell_hint: str = ""
+    errors_remaining: int = 0
+    last_step_delta: float = 0.0
 
 
 class DataForgeEnv(BaseEnv):
@@ -44,12 +47,13 @@ class DataForgeEnv(BaseEnv):
         self._clean_data = clean_data
         self._reward_computer = RewardComputer()
 
-        self._state: pd.DataFrame = None
-        self._ground_truth: pd.DataFrame = None
-        self._original_dirty: pd.DataFrame = None
+        self._state: pd.DataFrame | None = None
+        self._ground_truth: pd.DataFrame | None = None
+        self._original_dirty: pd.DataFrame | None = None
         self._prev_accuracy: float = 0.0
         self._starting_accuracy: float = 0.0
-        self._episode_start: float = None
+        self._last_step_delta: float = 0.0
+        self._episode_start: float | None = None
         self._step_count: int = 0
         self._action_log: list = []
         self._episode_rewards: list = []
@@ -71,6 +75,7 @@ class DataForgeEnv(BaseEnv):
         self._original_dirty = dirty.copy()
         self._prev_accuracy = self._reward_computer._field_accuracy(self._state, self._ground_truth)
         self._starting_accuracy = self._prev_accuracy
+        self._last_step_delta = 0.0
         self._episode_start = time.time()
         self._step_count = 0
         self._action_log = []
@@ -86,6 +91,7 @@ class DataForgeEnv(BaseEnv):
         self._step_count += 1
         self._action_log.append(action.model_dump())
         previous_state = self._state.copy(deep=True)
+        previous_accuracy = self._prev_accuracy
         self._state = apply_tool(self._state, action, self._schema)
 
         reward_dict = self._reward_computer.compute(
@@ -102,7 +108,11 @@ class DataForgeEnv(BaseEnv):
         )
 
         if "_current_accuracy" in reward_dict:
-            self._prev_accuracy = reward_dict.pop("_current_accuracy")
+            current_accuracy = float(reward_dict.pop("_current_accuracy"))
+            self._last_step_delta = round(current_accuracy - previous_accuracy, 4)
+            self._prev_accuracy = current_accuracy
+        else:
+            self._last_step_delta = 0.0
 
         self._episode_rewards.append(reward_dict["total"])
         done = (
@@ -169,10 +179,7 @@ class DataForgeEnv(BaseEnv):
             record = {"_row_idx": int(orig_idx)}
             record["_error_score"] = int(error_score_by_row.get(orig_idx, 0))
             raw_suspects = suspect_by_row.get(orig_idx, [])
-            record["_suspect_columns"] = [
-                f"{col}[{col_name_to_idx.get(col, '?')}]"
-                for col in raw_suspects
-            ]
+            record["_suspect_columns"] = [f"{col}[{col_name_to_idx.get(col, '?')}]" for col in raw_suspects]
             for col_name in top_rows.columns:
                 value = row[col_name]
                 if pd.isna(value):
@@ -185,10 +192,9 @@ class DataForgeEnv(BaseEnv):
 
         total_cells = state_clean.size
         schema_str = ", ".join(
-            [f"[{idx}]{name}:{info['type']}" for idx, (name, info) in enumerate(self._schema.items())]
+            f"[{idx}]{name}:{info['type']}" for idx, (name, info) in enumerate(self._schema.items())
         )
 
-        # violation_type: detect the worst violation in the top row's first suspect column
         violation_type = ""
         if ranked_rows:
             top_row_idx, _, top_suspects = ranked_rows[0]
@@ -198,17 +204,20 @@ class DataForgeEnv(BaseEnv):
                 try:
                     cell_val = state_clean.at[top_row_idx, suspect_col]
                     loc_in_state = state_clean.index.get_loc(top_row_idx)
-                    vtype = self._reward_computer._detect_constraint_violation(
-                        cell_val, suspect_col, col_schema, state_clean, loc_in_state
+                    detected = self._reward_computer._detect_constraint_violation(
+                        cell_val,
+                        suspect_col,
+                        col_schema,
+                        state_clean,
+                        loc_in_state,
                     )
-                    violation_type = vtype if vtype is not None else "clean"
+                    violation_type = detected if detected is not None else "clean"
                 except Exception:
                     violation_type = ""
 
-        # column_stats: distribution context for top suspect column
         column_stats = ""
         if ranked_rows:
-            top_row_idx, _, top_suspects = ranked_rows[0]
+            _, _, top_suspects = ranked_rows[0]
             if top_suspects:
                 suspect_col = top_suspects[0]
                 col_schema = self._schema.get(suspect_col, {})
@@ -228,6 +237,40 @@ class DataForgeEnv(BaseEnv):
                 except Exception:
                     column_stats = ""
 
+        target_cell_hint = ""
+        if ranked_rows:
+            top_row_idx, _, top_suspects = ranked_rows[0]
+            if top_suspects:
+                suspect_col = top_suspects[0]
+                col_idx = list(self._schema.keys()).index(suspect_col) if suspect_col in self._schema else "?"
+                cell_val = None
+                try:
+                    cell_val = state_clean.at[top_row_idx, suspect_col]
+                    val_str = "NULL" if pd.isna(cell_val) else str(cell_val)[:30]
+                except Exception:
+                    val_str = "?"
+
+                zscore_str = ""
+                try:
+                    col_numeric = pd.to_numeric(state_clean[suspect_col], errors="coerce").dropna()
+                    if len(col_numeric) >= 4:
+                        mean = col_numeric.mean()
+                        std = col_numeric.std()
+                        cell_num = pd.to_numeric(cell_val, errors="coerce")
+                        if pd.notna(cell_num) and std > 1e-9:
+                            z_score = abs(cell_num - mean) / std
+                            zscore_str = f", z-score={z_score:.1f}"
+                except Exception:
+                    pass
+
+                target_cell_hint = (
+                    f"row_id={top_row_idx}, column={col_idx} ({suspect_col}), "
+                    f"value={val_str}{zscore_str}"
+                )
+
+        errors_remaining = int(total_errors)
+        last_step_delta = float(self._last_step_delta if self._action_log else 0.0)
+
         return DataForgeObservation(
             rows_json=json.dumps(rows_safe),
             schema_str=schema_str,
@@ -235,9 +278,12 @@ class DataForgeEnv(BaseEnv):
             max_steps=self.MAX_STEPS,
             difficulty=self._current_difficulty,
             total_rows=int(len(state_clean)),
-            total_errors=total_errors,
+            total_errors=int(total_errors),
             error_rate_pct=round(100 * total_errors / max(total_cells, 1), 1),
             action_history=self._action_log[-2:],
             violation_type=violation_type,
             column_stats=column_stats,
+            target_cell_hint=target_cell_hint,
+            errors_remaining=errors_remaining,
+            last_step_delta=last_step_delta,
         )

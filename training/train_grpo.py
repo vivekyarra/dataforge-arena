@@ -7,7 +7,7 @@ Changes from audit:
   - Tool diversity penalty (−0.3 when >60% same tool in batch)
   - Temperature scheduling: 0.8 → 0.2 by step 200
   - Reward function verification: warn if shaped total < 0.1 for 3+ batches
-  - CORRECT_FORMAT on null_numeric returns 0.0 (fixed in reward.py)
+  - CORRECT_FORMAT on null_numeric returns -1.5 (fixed in reward.py)
 """
 from __future__ import annotations
 
@@ -56,6 +56,22 @@ from training.logger import TrainingLogger
 from training.model_config import detect_gpu, select_model, select_precision
 from training.parser import robust_parse_action
 from training.prompt import build_prompt
+
+os.makedirs("logs", exist_ok=True)
+with open("logs/debug_components.csv", "w", newline="", encoding="utf-8") as _f:
+    import csv as _csv2
+
+    _csv2.writer(_f).writerow(
+        [
+            "step",
+            "constraint_alignment",
+            "schema_alignment",
+            "reasoning_quality",
+            "parse_bonus",
+            "tool_id",
+            "violation_type",
+        ]
+    )
 
 
 gpu_info = detect_gpu()
@@ -436,6 +452,20 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         # Extract reward components from env.step() info — these are the EXACT
         # keys from RewardComputer.compute()
         rc = info.get("reward_components", {})
+        with open("logs/debug_components.csv", "a", newline="", encoding="utf-8") as _dbg:
+            import csv as _csv
+
+            _csv.writer(_dbg).writerow(
+                [
+                    current_step[0],
+                    rc.get("constraint_alignment", "MISSING"),
+                    rc.get("schema_alignment", "MISSING"),
+                    rc.get("reasoning_quality", "MISSING"),
+                    rc.get("parse_bonus", "MISSING"),
+                    action.tool_id,
+                    episode.get("violation_type", ""),
+                ]
+            )
         for key in component_accum:
             component_accum[key].append(rc.get(key, 0.0))
 
@@ -457,6 +487,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
             abs(sum(component_accum["parse_bonus"]))
         )
         avg_shaped = shaped_total / max(len(component_accum["constraint_alignment"]), 1)
+        prev_was_low = _consecutive_low_shaped[0] > 0
         if avg_shaped < 0.1:
             _consecutive_low_shaped[0] += 1
             if _consecutive_low_shaped[0] >= 3:
@@ -467,6 +498,8 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
                 )
         else:
             _consecutive_low_shaped[0] = 0
+            if prev_was_low:
+                print(f"[INFO] Shaped rewards recovered at step {current_step[0]}")
 
     if current_step[0] % 5 == 0:
         avg_components = {key: sum(values) / max(len(values), 1) for key, values in component_accum.items()}
@@ -476,6 +509,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         parse_rate = parse_successes[0] / max(total_rollouts[0], 1) * 100
         recovered_rate = parse_recoveries[0] / max(total_rollouts[0], 1) * 100
         invalid_rate = invalid_actions[0] / max(total_rollouts[0], 1) * 100
+        escalation_status = corruptor.get_escalation_status()
         logger.log(
             step=current_step[0],
             reward_dict={"total": avg_reward, **avg_components},
@@ -489,6 +523,7 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
             dominant_tool=dominant_tool,
             dominant_tool_rate=dominant_tool_rate,
             violation_type=episode.get("violation_type", "") if episode else "",
+            escalation_status=escalation_status,
         )
         print(
             f"Step {current_step[0]:3d} | reward={avg_reward:+.3f} | "

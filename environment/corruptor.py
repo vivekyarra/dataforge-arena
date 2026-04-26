@@ -14,25 +14,29 @@ class Corruptor:
     """
     Adversarial corruptor with adaptive curriculum escalation.
 
-    Tier escalation uses a rolling 10-step average reward, not
-    instantaneous reward.  Gates:
-        Tier 1 → 2: rolling avg > 2.5 for 10 consecutive steps AND step >= 80
-        Tier 2 → 3: rolling avg > 3.5 for 10 consecutive steps AND step >= 180
+    Tier escalation uses a rolling 5-step average reward, not instantaneous
+    reward. Gates:
+        Tier 1 -> 2: rolling avg > 2.0 for 5 consecutive steps and step >= 40
+        Tier 2 -> 3: rolling avg > 3.0 for 5 consecutive steps and step >= 120
 
-    De-escalation: if rolling avg < 1.0 for 5 consecutive steps, drop one tier.
+    De-escalation: if rolling avg < 1.0 for 3 consecutive steps, drop one tier.
+
+    Thresholds calibrated for Qwen2.5-1.5B on T4 GPU: tier 2 unlocks when
+    5-step rolling avg > 2.0 for 5 consecutive steps after step 40. These
+    values reflect the actual reward range observed during training
+    (mean 3.45, oscillation range 0.33-6.95).
     """
 
-    TIER_STEP_GATES = {2: 80, 3: 180}
-    TIER_REWARD_GATES = {2: 2.5, 3: 3.5}
-    ESCALATION_WINDOW = 10        # consecutive steps above threshold to escalate
+    TIER_STEP_GATES = {2: 40, 3: 120}
+    TIER_REWARD_GATES = {2: 2.0, 3: 3.0}
+    ESCALATION_WINDOW = 5
     DEESCALATION_THRESHOLD = 1.0
-    DEESCALATION_WINDOW = 5       # consecutive steps below threshold to de-escalate
+    DEESCALATION_WINDOW = 3
 
     def __init__(self):
         self._epoch = 0
         self._recent_rewards = deque(maxlen=50)
         self._unlocked_tier = 1
-        # Track consecutive steps above/below thresholds
         self._consecutive_above = 0
         self._consecutive_below = 0
 
@@ -53,16 +57,16 @@ class Corruptor:
         self._consecutive_above = 0
         self._consecutive_below = 0
 
-    def _rolling_avg(self, window: int = 10) -> float:
+    def _rolling_avg(self, window: int | None = None) -> float:
         if not self._recent_rewards:
             return -99.0
-        recent = list(self._recent_rewards)[-window:]
+        recent_window = window or self.ESCALATION_WINDOW
+        recent = list(self._recent_rewards)[-recent_window:]
         return sum(recent) / len(recent)
 
     def _update_tier(self):
         rolling = self._rolling_avg(self.ESCALATION_WINDOW)
 
-        # --- De-escalation check ---
         if rolling < self.DEESCALATION_THRESHOLD and len(self._recent_rewards) >= self.DEESCALATION_WINDOW:
             self._consecutive_below += 1
             if self._consecutive_below >= self.DEESCALATION_WINDOW and self._unlocked_tier > 1:
@@ -71,14 +75,16 @@ class Corruptor:
                 self._consecutive_below = 0
                 self._consecutive_above = 0
                 logger.info(
-                    "Corruptor DE-ESCALATED tier %s → %s: epoch=%s, rolling_avg=%.3f",
-                    old_tier, self._unlocked_tier, self._epoch, rolling,
+                    "Corruptor de-escalated tier %s -> %s: epoch=%s, rolling_avg=%.3f",
+                    old_tier,
+                    self._unlocked_tier,
+                    self._epoch,
+                    rolling,
                 )
                 return
         else:
             self._consecutive_below = 0
 
-        # --- Escalation check ---
         for candidate_tier in [2, 3]:
             if self._unlocked_tier >= candidate_tier:
                 continue
@@ -91,25 +97,48 @@ class Corruptor:
                     self._unlocked_tier = candidate_tier
                     self._consecutive_above = 0
                     logger.info(
-                        "Corruptor ESCALATED to tier %s: epoch=%s, rolling_avg=%.3f",
-                        candidate_tier, self._epoch, rolling,
+                        "Corruptor escalated to tier %s: epoch=%s, rolling_avg=%.3f",
+                        candidate_tier,
+                        self._epoch,
+                        rolling,
                     )
             else:
                 self._consecutive_above = 0
-            break  # Only check the next tier up
+            break
+
+    def get_escalation_status(self) -> dict:
+        rolling = self._rolling_avg(self.ESCALATION_WINDOW)
+        next_tier = None
+        if self._unlocked_tier < 2:
+            next_tier = 2
+        elif self._unlocked_tier < 3:
+            next_tier = 3
+
+        if next_tier is None:
+            steps_to_next_tier = 0
+        else:
+            steps_to_next_tier = max(self.ESCALATION_WINDOW - self._consecutive_above, 0)
+
+        return {
+            "current_tier": int(self._unlocked_tier),
+            "rolling_avg": round(float(rolling), 4),
+            "steps_above_threshold": int(self._consecutive_above),
+            "steps_to_next_tier": int(steps_to_next_tier),
+        }
 
     def current_tier(self) -> int:
         return self._unlocked_tier
 
     def is_transitioning(self) -> bool:
+        transition_window = self.ESCALATION_WINDOW
         for gate in self.TIER_STEP_GATES.values():
-            if gate <= self._epoch < gate + 10:
+            if gate <= self._epoch < gate + transition_window:
                 return True
         return False
 
     def generate_episode(self, clean_df: pd.DataFrame, max_retries: int = 10) -> tuple:
         """
-        Returns (dirty_df, ground_truth, metadata)
+        Returns (dirty_df, ground_truth, metadata).
         Solvability gate ensures every episode is learnable.
         """
         tier = self.current_tier()
@@ -174,10 +203,15 @@ class Corruptor:
         return df, {"tool": "inject_null_single", "col": col, "row": row, "original": original_val}
 
     def _corrupt_tier2(self, df: pd.DataFrame) -> tuple:
-        tool = random.choice([
-            "inject_null_cluster", "swap_date_format", "inject_out_of_range_age",
-            "semantic_temporal_drift", "currency_unit_mismatch",
-        ])
+        tool = random.choice(
+            [
+                "inject_null_cluster",
+                "swap_date_format",
+                "inject_out_of_range_age",
+                "semantic_temporal_drift",
+                "currency_unit_mismatch",
+            ]
+        )
         metadata = {"tool": tool}
 
         if tool == "inject_null_cluster":
@@ -273,6 +307,7 @@ class Corruptor:
         return df, metadata
 
     def _solvability_gate(self, dirty_df: pd.DataFrame, ground_truth: pd.DataFrame, metadata: dict) -> tuple:
+        del ground_truth
         tool = metadata.get("tool", "")
 
         if tool == "delete_row":

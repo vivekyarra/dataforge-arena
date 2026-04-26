@@ -1,22 +1,10 @@
 """
-DataForge Arena - Evaluation Harness
+DataForge Arena evaluation harness.
 
 Usage:
     python eval/evaluate.py --agent-mode heuristic
+    python eval/evaluate.py --agent-mode heuristic --schema both --steps 10
     python eval/evaluate.py --agent-mode grpo --model-path outputs/dataforge-surgeon
-
-Metrics added for judge visibility:
-    - destruction_ratio:  surgeon_avg / random_avg (absolute values). < 1 means
-      surgeon is less destructive. E.g. 0.089 = 11.3× less destructive.
-    - improvement_vs_random_pct:  ((random − surgeon) / |random|) × 100.
-      Positive when surgeon is less destructive than random.
-
-Note on win_rate:
-    win_rate counts episodes where accuracy_delta > 0.  In tier 1, both agents
-    operate near the accuracy ceiling (~0.99), so marginal gains register as
-    zero in the integer comparison.  A win_rate of 0.0 does NOT mean the GRPO
-    model is worse — it means positive accuracy deltas are vanishingly small.
-    The destruction_ratio is the more informative metric at this stage.
 """
 from __future__ import annotations
 
@@ -39,12 +27,22 @@ sys.path.insert(0, str(REPO_ROOT))
 from environment.corruptor import Corruptor
 from environment.env import DataForgeEnv, SurgeonAction
 from environment.reward import RewardComputer
-from environment.schemas import HEALTHCARE_SCHEMA
+from environment.schemas import FINANCIAL_SCHEMA, HEALTHCARE_SCHEMA
 from training.parser import robust_parse_action
 from training.prompt import build_prompt
 
 
 DEFAULT_LOCAL_MODEL_PATH = "outputs/dataforge-surgeon"
+SCHEMA_CONFIGS = {
+    "healthcare": {
+        "schema": HEALTHCARE_SCHEMA,
+        "data_path": REPO_ROOT / "data" / "healthcare_clean.csv",
+    },
+    "financial": {
+        "schema": FINANCIAL_SCHEMA,
+        "data_path": REPO_ROOT / "data" / "financial_clean.csv",
+    },
+}
 llm_pipeline = None
 
 
@@ -98,7 +96,7 @@ class LocalTextGenerator:
             )
             with torch.no_grad():
                 outputs = self.model.generate(**inputs, **generate_kwargs)
-        generated_ids = outputs[0][inputs["input_ids"].shape[-1]:]
+        generated_ids = outputs[0][inputs["input_ids"].shape[-1] :]
         generated_text = self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
         return [{"generated_text": [*messages, {"role": "assistant", "content": generated_text}]}]
 
@@ -138,7 +136,8 @@ def _resolve_loadable_model_path(model_path: str) -> Path:
         return root
 
     candidates = [
-        child for child in root.glob("checkpoint-*")
+        child
+        for child in root.glob("checkpoint-*")
         if child.is_dir() and (_config_has_model_type(child) or _is_adapter_checkpoint(child))
     ]
     if candidates:
@@ -224,7 +223,7 @@ def load_eval_pipeline(model_path: str):
     return llm_pipeline
 
 
-def random_baseline_agent(state: pd.DataFrame, gt: pd.DataFrame) -> SurgeonAction:
+def random_baseline_agent(state: pd.DataFrame) -> SurgeonAction:
     display_cols = [c for c in state.columns if c != "_is_deleted"]
     return SurgeonAction(
         reasoning="random action",
@@ -281,7 +280,7 @@ def heuristic_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame, schema: dict)
     return SurgeonAction(reasoning="no errors detected", tool_id=7, column=0, row_id=0)
 
 
-def grpo_surgeon_agent(state: pd.DataFrame, gt: pd.DataFrame, env: DataForgeEnv) -> SurgeonAction:
+def grpo_surgeon_agent(env: DataForgeEnv) -> SurgeonAction:
     obs = env._make_observation()
     prompt = build_prompt(obs)
     messages = [
@@ -333,21 +332,68 @@ def _bootstrap_eval_env(
     gt: pd.DataFrame,
     tier: int,
     rc: RewardComputer,
+    schema: dict,
 ) -> DataForgeEnv:
     local_corruptor = Corruptor()
     local_corruptor.force_tier(tier)
-    eval_env = DataForgeEnv(local_corruptor, HEALTHCARE_SCHEMA, clean_data)
+    eval_env = DataForgeEnv(local_corruptor, schema, clean_data)
     starting_acc = rc._field_accuracy(dirty, gt)
     eval_env._state = dirty.copy()
     eval_env._ground_truth = gt.copy()
     eval_env._original_dirty = dirty.copy()
     eval_env._prev_accuracy = starting_acc
     eval_env._starting_accuracy = starting_acc
+    eval_env._last_step_delta = 0.0
     eval_env._step_count = 0
     eval_env._action_log = []
     eval_env._episode_rewards = []
     eval_env._episode_start = time.time()
+    eval_env._current_difficulty = tier
     return eval_env
+
+
+def _init_agent_metrics(max_steps: int) -> dict:
+    return {
+        "before": [],
+        "after": [],
+        "deltas": [],
+        "per_step_accuracy_sums": [0.0] * max_steps,
+        "episodes": 0,
+        "constraint_rates": [],
+        "schema_rates": [],
+    }
+
+
+def _record_episode(
+    metrics: dict,
+    acc_before: float,
+    acc_after: float,
+    delta: float,
+    step_accuracies: list[float],
+    constraint_rate: float | None = None,
+    schema_rate: float | None = None,
+):
+    metrics["before"].append(acc_before)
+    metrics["after"].append(acc_after)
+    metrics["deltas"].append(delta)
+    metrics["episodes"] += 1
+
+    for idx, accuracy in enumerate(step_accuracies):
+        metrics["per_step_accuracy_sums"][idx] += accuracy
+
+    if constraint_rate is not None:
+        metrics["constraint_rates"].append(constraint_rate)
+    if schema_rate is not None:
+        metrics["schema_rates"].append(schema_rate)
+
+
+def _per_step_accuracy(metrics: dict) -> list[float]:
+    episodes = max(metrics["episodes"], 1)
+    return [round(total / episodes, 4) for total in metrics["per_step_accuracy_sums"]]
+
+
+def _mean(values: list[float]) -> float:
+    return float(np.mean(values)) if values else 0.0
 
 
 def _build_results_payload(
@@ -357,202 +403,346 @@ def _build_results_payload(
     episodes: int,
     max_steps: int,
     seed: int,
+    schema_name: str,
+    schemas_evaluated: list[str],
     surgeon_delta: float,
     random_delta: float,
     surgeon_win_rate: float,
     random_win_rate: float,
+    per_step_accuracy: list[float],
+    constraint_alignment_rate: float,
+    schema_alignment_rate: float,
+    schema_breakdown: dict | None = None,
 ) -> dict:
     advantage = surgeon_delta - random_delta
-
-    # destruction_ratio: |surgeon_avg| / |random_avg|
-    # Values < 1.0 mean surgeon is less destructive. Lower is better.
-    # E.g. 0.089 means GRPO is 11.3× less destructive than random.
     abs_surgeon = abs(surgeon_delta)
     abs_random = abs(random_delta)
-    if abs_random > 1e-9:
-        destruction_ratio = round(abs_surgeon / abs_random, 4)
-    else:
-        destruction_ratio = 0.0 if abs_surgeon < 1e-9 else float("inf")
-
-    # improvement_vs_random_pct: how much less destructive surgeon is vs random
-    # ((random − surgeon) / |random|) × 100
-    # Positive when surgeon is less destructive.
-    if abs_random > 1e-9:
-        improvement_pct = round(((random_delta - surgeon_delta) / abs_random) * 100, 2)
-    else:
-        improvement_pct = 0.0
 
     payload = {
         "agent_mode": agent_config["agent_mode"],
         "model_source": agent_config["model_source"],
         "fallback_used": agent_config["fallback_used"],
+        "schema": schema_name,
+        "schemas_evaluated": schemas_evaluated,
         "tier": tier,
         "episodes": episodes,
         "max_steps": max_steps,
+        "eval_steps": max_steps,
         "seed": seed,
         "surgeon_avg_accuracy_delta": round(float(surgeon_delta), 6),
         "random_avg_accuracy_delta": round(float(random_delta), 6),
         "surgeon_advantage_accuracy_delta": round(float(advantage), 6),
         "surgeon_win_rate": round(float(surgeon_win_rate), 6),
         "random_win_rate": round(float(random_win_rate), 6),
-        # New framing metrics for judge visibility
-        "destruction_ratio": destruction_ratio,
-        "improvement_vs_random_pct": improvement_pct,
+        "constraint_alignment_rate": round(float(constraint_alignment_rate), 4),
+        "schema_alignment_rate": round(float(schema_alignment_rate), 4),
+        "per_step_accuracy": per_step_accuracy,
     }
-    if agent_config["agent_mode"] == "heuristic":
-        payload["note"] = "Heuristic surgeon results. No trained GRPO checkpoint was used."
-    else:
-        # Contextual note explaining why win_rate can be 0.0 despite meaningful improvement.
-        # In tier 1, both agents operate near the accuracy ceiling (~0.99). Marginal
-        # accuracy gains are vanishingly small, so very few episodes register delta > 0
-        # in the integer comparison. The destruction_ratio is the more informative metric:
-        # it shows GRPO is N× less destructive than random, which is the real signal.
-        payload["note"] = (
-            "GRPO checkpoint evaluation. win_rate counts episodes with accuracy_delta > 0. "
-            "In tier 1, both agents operate near the accuracy ceiling (~0.99), so marginal "
-            "gains rarely register as positive deltas. The destruction_ratio is the more "
-            "informative metric at this stage."
+
+    if surgeon_delta > 0:
+        constructive_ratio = surgeon_delta / abs_random if abs_random > 1e-9 else float("inf")
+        constructive_label = (
+            "Heuristic surgeon" if agent_config["agent_mode"] == "heuristic" else "Surgeon agent"
         )
+        payload["constructive_ratio"] = (
+            round(float(constructive_ratio), 4) if np.isfinite(constructive_ratio) else constructive_ratio
+        )
+        payload["agent_type"] = "constructive"
+        payload.pop("destruction_ratio", None)
+        payload.pop("improvement_vs_random_pct", None)
+        payload["note"] = (
+            f"{constructive_label} is CONSTRUCTIVE (positive accuracy delta +{surgeon_delta:.4f}). "
+            f"constructive_ratio={constructive_ratio:.2f} means surgeon achieves {constructive_ratio:.1f}x "
+            f"the magnitude of improvement vs what random destroys."
+        )
+    else:
+        destruction_ratio = (
+            round(abs_surgeon / abs_random, 4)
+            if abs_random > 1e-9
+            else (0.0 if abs_surgeon < 1e-9 else float("inf"))
+        )
+        improvement_pct = (
+            round(((random_delta - surgeon_delta) / abs_random) * 100, 2)
+            if abs_random > 1e-9
+            else 0.0
+        )
+        payload["destruction_ratio"] = destruction_ratio
+        payload["improvement_vs_random_pct"] = improvement_pct
+        payload["agent_type"] = "learning"
+        if agent_config["agent_mode"] == "heuristic":
+            payload["note"] = "Heuristic surgeon results. No trained GRPO checkpoint was used."
+        else:
+            payload["note"] = (
+                "GRPO checkpoint evaluation. win_rate counts episodes with accuracy_delta > 0. "
+                "In tier 1, both agents operate near the accuracy ceiling (~0.99), so marginal "
+                "gains rarely register as positive deltas. The destruction_ratio is the more "
+                "informative metric at this stage."
+            )
+
+    if schema_breakdown is not None:
+        payload["schema_breakdown"] = schema_breakdown
+
     return payload
 
 
-def evaluate(
-    n_episodes: int = 10,
-    tier: int = 1,
-    max_steps: int = 5,
-    agent_mode: str = "heuristic",
-    model_path: str | None = None,
-    seed: int = 7,
-) -> dict:
-    agent_config = resolve_eval_agent(agent_mode, model_path)
-    clean_data = pd.read_csv("data/healthcare_clean.csv")
+def _evaluate_schema(
+    *,
+    schema_name: str,
+    schema: dict,
+    clean_data: pd.DataFrame,
+    agent_config: dict,
+    n_episodes: int,
+    tier: int,
+    max_steps: int,
+    seed: int,
+    print_report: bool = True,
+) -> tuple[dict, dict]:
     corruptor = Corruptor()
     corruptor.force_tier(tier)
     rc = RewardComputer()
 
-    random.seed(seed)
-    np.random.seed(seed)
+    results = {
+        "random": _init_agent_metrics(max_steps),
+        "surgeon": _init_agent_metrics(max_steps),
+    }
 
     if agent_config["agent_mode"] == "grpo":
         load_eval_pipeline(agent_config["model_path"])
 
-    results = {
-        "random": {"before": [], "after": [], "deltas": []},
-        "surgeon": {"before": [], "after": [], "deltas": []},
-    }
-
     surgeon_label = "Heuristic Surgeon" if agent_config["agent_mode"] == "heuristic" else "GRPO Surgeon"
-    surgeon_agent_fn = (
-        (lambda state, target_gt, eval_env: heuristic_surgeon_agent(state, target_gt, HEALTHCARE_SCHEMA))
-        if agent_config["agent_mode"] == "heuristic"
-        else (lambda state, target_gt, eval_env: grpo_surgeon_agent(state, target_gt, eval_env))
-    )
 
-    print(f"\n{'=' * 60}")
-    print("  DataForge Arena - Evaluation Report")
-    print(
-        f"  Mode: {agent_config['agent_mode']} | Episodes: {n_episodes} | "
-        f"Tier: {tier} | Max Steps: {max_steps} | Seed: {seed}"
-    )
-    print(f"{'=' * 60}\n")
+    if print_report:
+        print(f"\n{'=' * 60}")
+        print("  DataForge Arena - Evaluation Report")
+        print(
+            f"  Mode: {agent_config['agent_mode']} | Schema: {schema_name} | Episodes: {n_episodes} | "
+            f"Tier: {tier} | Max Steps: {max_steps} | Seed: {seed}"
+        )
+        print(f"{'=' * 60}\n")
 
     for episode_idx in range(n_episodes):
+        episode_seed = seed + episode_idx
+        random.seed(episode_seed)
+        np.random.seed(episode_seed)
         sample = clean_data.sample(
             n=min(50, len(clean_data)),
-            random_state=seed + episode_idx,
+            random_state=episode_seed,
         ).reset_index(drop=True)
         dirty, gt, meta = corruptor.generate_episode(sample)
         gt = _align_duplicate_ground_truth(dirty, gt, meta)
         acc_before = rc._field_accuracy(dirty, gt)
 
         agents = [
-            ("random", lambda state, target_gt, eval_env: random_baseline_agent(state, target_gt)),
-            ("surgeon", surgeon_agent_fn),
+            ("random", lambda eval_env: random_baseline_agent(eval_env._state.copy())),
+            (
+                "surgeon",
+                (lambda eval_env: heuristic_surgeon_agent(eval_env._state.copy(), gt, schema))
+                if agent_config["agent_mode"] == "heuristic"
+                else (lambda eval_env: grpo_surgeon_agent(eval_env)),
+            ),
         ]
 
         for agent_name, agent_fn in agents:
-            eval_env = _bootstrap_eval_env(clean_data, dirty, gt, tier, rc)
+            eval_env = _bootstrap_eval_env(clean_data, dirty, gt, tier, rc, schema)
+            step_accuracies = []
+            constraint_hits = 0
+            schema_hits = 0
+            executed_steps = 0
+
             for _ in range(max_steps):
-                action = agent_fn(eval_env._state.copy(), gt, eval_env)
-                _, _, done, _ = eval_env.step(action)
+                action = agent_fn(eval_env)
+                _, _, done, info = eval_env.step(action)
+                current_acc = rc._field_accuracy(eval_env._state, gt)
+                step_accuracies.append(current_acc)
+                executed_steps += 1
+
+                if agent_name == "surgeon":
+                    reward_components = info.get("reward_components", {})
+                    if reward_components.get("constraint_alignment", 0.0) > 0:
+                        constraint_hits += 1
+                    if reward_components.get("schema_alignment", 0.0) > 0:
+                        schema_hits += 1
+
                 if done:
                     break
 
-            state_after = eval_env._state.copy()
-            acc_after = rc._field_accuracy(state_after, gt)
+            if not step_accuracies:
+                step_accuracies = [acc_before] * max_steps
+            else:
+                while len(step_accuracies) < max_steps:
+                    step_accuracies.append(step_accuracies[-1])
+
+            acc_after = step_accuracies[-1]
             delta = acc_after - acc_before
+            constraint_rate = None
+            schema_rate = None
+            if agent_name == "surgeon":
+                constraint_rate = constraint_hits / max(executed_steps, 1)
+                schema_rate = schema_hits / max(executed_steps, 1)
 
-            results[agent_name]["before"].append(acc_before)
-            results[agent_name]["after"].append(acc_after)
-            results[agent_name]["deltas"].append(delta)
+            _record_episode(
+                results[agent_name],
+                acc_before,
+                acc_after,
+                delta,
+                step_accuracies,
+                constraint_rate=constraint_rate,
+                schema_rate=schema_rate,
+            )
 
-        print(
-            f"  Episode {episode_idx + 1:2d}/{n_episodes} | corruption={meta['tool']:25s} | "
-            f"random: {results['random']['deltas'][-1]:+.3f} | "
-            f"{agent_config['agent_mode']}: {results['surgeon']['deltas'][-1]:+.3f}"
-        )
+        if print_report:
+            print(
+                f"  Episode {episode_idx + 1:2d}/{n_episodes} | schema={schema_name:10s} | "
+                f"corruption={meta['tool']:25s} | random: {results['random']['deltas'][-1]:+.3f} | "
+                f"{agent_config['agent_mode']}: {results['surgeon']['deltas'][-1]:+.3f}"
+            )
 
-    print(f"\n{'-' * 60}")
-    print("  RESULTS SUMMARY")
-    print(f"{'-' * 60}")
-
-    for agent_name, label in [("random", "Random Baseline"), ("surgeon", surgeon_label)]:
-        metrics = results[agent_name]
-        avg_before = np.mean(metrics["before"])
-        avg_after = np.mean(metrics["after"])
-        avg_delta = np.mean(metrics["deltas"])
-        win_rate = sum(1 for delta in metrics["deltas"] if delta > 0) / max(len(metrics["deltas"]), 1)
-        print(f"\n  {label}:")
-        print(f"    Avg accuracy before:  {avg_before:.4f}")
-        print(f"    Avg accuracy after:   {avg_after:.4f}")
-        print(f"    Avg accuracy delta:   {avg_delta:+.4f} ({avg_delta * 100:+.2f}%)")
-        print(f"    Win rate (delta > 0): {win_rate:.2%}")
-
-    surgeon_delta = np.mean(results["surgeon"]["deltas"])
-    random_delta = np.mean(results["random"]["deltas"])
-    surgeon_win_rate = sum(1 for delta in results["surgeon"]["deltas"] if delta > 0) / max(len(results["surgeon"]["deltas"]), 1)
-    random_win_rate = sum(1 for delta in results["random"]["deltas"] if delta > 0) / max(len(results["random"]["deltas"]), 1)
-
+    surgeon_delta = _mean(results["surgeon"]["deltas"])
+    random_delta = _mean(results["random"]["deltas"])
+    surgeon_win_rate = sum(1 for delta in results["surgeon"]["deltas"] if delta > 0) / max(
+        len(results["surgeon"]["deltas"]),
+        1,
+    )
+    random_win_rate = sum(1 for delta in results["random"]["deltas"] if delta > 0) / max(
+        len(results["random"]["deltas"]),
+        1,
+    )
     payload = _build_results_payload(
         agent_config=agent_config,
         tier=tier,
         episodes=n_episodes,
         max_steps=max_steps,
         seed=seed,
+        schema_name=schema_name,
+        schemas_evaluated=[schema_name],
         surgeon_delta=surgeon_delta,
         random_delta=random_delta,
         surgeon_win_rate=surgeon_win_rate,
         random_win_rate=random_win_rate,
+        per_step_accuracy=_per_step_accuracy(results["surgeon"]),
+        constraint_alignment_rate=_mean(results["surgeon"]["constraint_rates"]),
+        schema_alignment_rate=_mean(results["surgeon"]["schema_rates"]),
     )
 
-    # Print the new framing metrics
+    if print_report:
+        print(f"\n{'-' * 60}")
+        print(f"  RESULTS SUMMARY ({schema_name})")
+        print(f"{'-' * 60}")
+        print(f"  Random Baseline delta: {random_delta:+.4f}")
+        print(f"  {surgeon_label} delta: {surgeon_delta:+.4f}")
+        print(f"  Surgeon win rate: {surgeon_win_rate:.2%}")
+        print(f"  Constraint alignment rate: {payload['constraint_alignment_rate']:.2%}")
+        print(f"  Schema alignment rate: {payload['schema_alignment_rate']:.2%}")
+        if "constructive_ratio" in payload:
+            print(f"  Constructive ratio: {payload['constructive_ratio']}")
+        else:
+            print(f"  Destruction ratio: {payload['destruction_ratio']}")
+            print(f"  Improvement vs random: {payload['improvement_vs_random_pct']:+.1f}%")
+
+    return results, payload
+
+
+def _merge_results(target: dict, source: dict):
+    for agent_name in ["random", "surgeon"]:
+        target_agent = target[agent_name]
+        source_agent = source[agent_name]
+        target_agent["before"].extend(source_agent["before"])
+        target_agent["after"].extend(source_agent["after"])
+        target_agent["deltas"].extend(source_agent["deltas"])
+        target_agent["episodes"] += source_agent["episodes"]
+        target_agent["constraint_rates"].extend(source_agent["constraint_rates"])
+        target_agent["schema_rates"].extend(source_agent["schema_rates"])
+        for idx, value in enumerate(source_agent["per_step_accuracy_sums"]):
+            target_agent["per_step_accuracy_sums"][idx] += value
+
+
+def evaluate(
+    n_episodes: int = 10,
+    tier: int = 1,
+    max_steps: int = 10,
+    agent_mode: str = "heuristic",
+    model_path: str | None = None,
+    seed: int = 7,
+    schema: str = "both",
+) -> dict:
+    agent_config = resolve_eval_agent(agent_mode, model_path)
+    selected_schemas = (
+        ["healthcare", "financial"] if schema == "both" else [schema]
+    )
+
+    aggregate_results = {
+        "random": _init_agent_metrics(max_steps),
+        "surgeon": _init_agent_metrics(max_steps),
+    }
+    schema_breakdown = {}
+
+    for schema_index, schema_name in enumerate(selected_schemas):
+        schema_cfg = SCHEMA_CONFIGS[schema_name]
+        clean_data = pd.read_csv(schema_cfg["data_path"])
+        schema_seed = seed + schema_index * 1000
+        schema_results, schema_payload = _evaluate_schema(
+            schema_name=schema_name,
+            schema=schema_cfg["schema"],
+            clean_data=clean_data,
+            agent_config=agent_config,
+            n_episodes=n_episodes,
+            tier=tier,
+            max_steps=max_steps,
+            seed=schema_seed,
+            print_report=True,
+        )
+        schema_breakdown[schema_name] = schema_payload
+        _merge_results(aggregate_results, schema_results)
+
+    surgeon_delta = _mean(aggregate_results["surgeon"]["deltas"])
+    random_delta = _mean(aggregate_results["random"]["deltas"])
+    surgeon_win_rate = sum(1 for delta in aggregate_results["surgeon"]["deltas"] if delta > 0) / max(
+        len(aggregate_results["surgeon"]["deltas"]),
+        1,
+    )
+    random_win_rate = sum(1 for delta in aggregate_results["random"]["deltas"] if delta > 0) / max(
+        len(aggregate_results["random"]["deltas"]),
+        1,
+    )
+
+    payload = _build_results_payload(
+        agent_config=agent_config,
+        tier=tier,
+        episodes=n_episodes * len(selected_schemas),
+        max_steps=max_steps,
+        seed=seed,
+        schema_name=schema,
+        schemas_evaluated=selected_schemas,
+        surgeon_delta=surgeon_delta,
+        random_delta=random_delta,
+        surgeon_win_rate=surgeon_win_rate,
+        random_win_rate=random_win_rate,
+        per_step_accuracy=_per_step_accuracy(aggregate_results["surgeon"]),
+        constraint_alignment_rate=_mean(aggregate_results["surgeon"]["constraint_rates"]),
+        schema_alignment_rate=_mean(aggregate_results["surgeon"]["schema_rates"]),
+        schema_breakdown=schema_breakdown,
+    )
+
     print(f"\n{'-' * 60}")
-    print("  FRAMING METRICS")
+    print("  AGGREGATED SUMMARY")
     print(f"{'-' * 60}")
-    print(f"  Destruction ratio:       {payload['destruction_ratio']}")
-    if payload['destruction_ratio'] > 0 and payload['destruction_ratio'] < 1:
-        print(f"    → {surgeon_label} is {1/payload['destruction_ratio']:.1f}× less destructive than random")
-    print(f"  Improvement vs random:   {payload['improvement_vs_random_pct']:+.1f}%")
-
-    print(f"\n{'=' * 60}")
-    print(
-        "  HEADLINE: "
-        f"{surgeon_label} outperforms random by "
-        f"{payload['surgeon_advantage_accuracy_delta'] * 100:+.2f}% accuracy delta"
-    )
-    print(f"{'=' * 60}\n")
+    print(f"  Schemas evaluated: {', '.join(selected_schemas)}")
+    print(f"  Surgeon advantage: {payload['surgeon_advantage_accuracy_delta'] * 100:+.2f}% accuracy delta")
+    print(f"  Constraint alignment rate: {payload['constraint_alignment_rate']:.2%}")
+    print(f"  Schema alignment rate: {payload['schema_alignment_rate']:.2%}")
+    if "constructive_ratio" in payload:
+        print(f"  Constructive ratio: {payload['constructive_ratio']}")
+    else:
+        print(f"  Destruction ratio: {payload['destruction_ratio']}")
+        if payload["destruction_ratio"] not in (0.0, float("inf")):
+            print(f"    -> agent is {1 / payload['destruction_ratio']:.1f}x less destructive than random")
+        print(f"  Improvement vs random: {payload['improvement_vs_random_pct']:+.1f}%")
 
     os.makedirs("eval", exist_ok=True)
-
-    # Determine output filename based on agent mode
-    if agent_config["agent_mode"] == "heuristic":
-        output_file = "eval/heuristic_results.json"
-    else:
-        output_file = "eval/results.json"
-
+    output_file = "eval/heuristic_results.json" if agent_config["agent_mode"] == "heuristic" else "eval/results.json"
     with open(output_file, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
-    print(f"  Results saved to {output_file}")
+    print(f"\nResults saved to {output_file}")
     return payload
 
 
@@ -560,10 +750,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--tier", type=int, default=1, choices=[1, 2, 3])
-    parser.add_argument("--steps", type=int, default=5)
+    parser.add_argument("--steps", type=int, default=10)
     parser.add_argument("--agent-mode", type=str, default="heuristic", choices=["heuristic", "grpo"])
     parser.add_argument("--model-path", type=str, default=None)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--schema", type=str, default="both", choices=["healthcare", "financial", "both"])
     args = parser.parse_args()
 
     try:
@@ -574,6 +765,7 @@ if __name__ == "__main__":
             agent_mode=args.agent_mode,
             model_path=args.model_path,
             seed=args.seed,
+            schema=args.schema,
         )
     except FileNotFoundError as exc:
         raise SystemExit(str(exc))

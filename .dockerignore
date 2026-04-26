@@ -1,0 +1,9 @@
+outputs/
+logs/*.png
+logs/*.csv
+pycache/
+__pycache__/
+*.pyc
+.git/
+tests/
+*.ipynb
