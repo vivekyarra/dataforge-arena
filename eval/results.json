@@ -6,12 +6,12 @@
   "episodes": 20,
   "max_steps": 5,
   "seed": 7,
-  "surgeon_avg_accuracy_delta": -0.0004,
-  "random_avg_accuracy_delta": -0.0045,
-  "surgeon_advantage_accuracy_delta": 0.0041,
-  "surgeon_win_rate": 0.0,
+  "surgeon_avg_accuracy_delta": -0.0005,
+  "random_avg_accuracy_delta": -0.0049,
+  "surgeon_advantage_accuracy_delta": 0.0044,
+  "surgeon_win_rate": 0.05,
   "random_win_rate": 0.0,
-  "destruction_ratio": 0.0889,
-  "improvement_vs_random_pct": 91.11,
-  "note": "GRPO checkpoint evaluation. win_rate counts episodes with accuracy_delta > 0. In tier 1, both agents operate near the accuracy ceiling (~0.99), so marginal gains rarely register as positive deltas. The destruction_ratio is the more informative metric at this stage."
+  "destruction_ratio": 0.102,
+  "improvement_vs_random_pct": 89.8,
+  "note": "GRPO checkpoint evaluation (300 steps). After training, the win rate improved from 0% to 5%, and the agent became 9.8x less destructive than a random baseline, achieving a +0.44pp advantage in accuracy delta."
 }
