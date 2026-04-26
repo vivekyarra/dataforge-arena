@@ -1,6 +1,6 @@
 ---
 title: DataForge Arena
-emoji: ":microscope:"
+emoji: "🔬"
 colorFrom: blue
 colorTo: green
 sdk: docker
