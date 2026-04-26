@@ -1,0 +1,111 @@
+def load_dash():
+            df = get_training_data()
+            return _topbar_html(), _benchmark_html(), df, df
+
+        gen_outs = [dirty_view, scenario_stats, state,
+                    rollout_out, acc_display, repaired_view, diff_out]
+
+        btn1.click(fn=lambda s: on_gen(1, s), inputs=[state], outputs=gen_outs)
+        btn3.click(fn=lambda s: on_gen(3, s), inputs=[state], outputs=gen_outs)
+
+        exec_btn.click(
+            fn=simulate_agent,
+            inputs=[agent_pick, state],
+            outputs=[rollout_out, acc_display, diff_out, state],
+        )
+
+        # After execution update repaired view — we need to also return repaired_view
+        # Wrap simulate_agent to yield repaired data too
+        def simulate_with_repaired(agent_type, session_state):
+            session_state = dict(session_state or _new_state())
+            dirty  = session_state.get("dirty")
+            gt     = session_state.get("gt")
+            tier   = int(session_state.get("tier", 1))
+
+            if dirty is None:
+                yield (_empty_rollout(), _accuracy_display(None,None),
+                       _diff_html(None,None,None), None, session_state)
+                return
+
+            env, acc_before = _build_env(dirty.copy(), gt.copy(), tier)
+            cols     = [c for c in env._state.columns if c != "_is_deleted"]
+            rollouts = []
+            MAX      = 5
+
+            for step_idx in range(MAX):
+                ro, acc_d, diff = _rollout_html(rollouts, dirty, env._state, gt, acc_before,
+                                                agent_type, MAX, step_idx+1)
+                repaired = env._state[cols].head(8).copy()
+                yield ro, acc_d, diff, repaired, session_state
+
+                if agent_type == "Naive Baseline":
+                    tr=tc=None; tid=7; rsn="No errors."
+                    for ri in range(len(env._state)):
+                        for ci, col in enumerate(cols):
+                            cell = env._state.at[ri, col]
+                            if pd.isna(cell):     tr,tc,tid,rsn=ri,ci,0,"Null→IMPUTE_MEDIAN"; break
+                            if str(cell).startswith("ERR_"): tr,tc,tid,rsn=ri,ci,0,"ERR→IMPUTE_MEDIAN"; break
+                        if tr is not None: break
+                    action = SurgeonAction(reasoning=rsn,tool_id=tid,
+                                           column=tc if tc is not None else 0,
+                                           row_id=tr if tr is not None else 0)
+                elif agent_type == "Heuristic Surgeon":
+                    action = heuristic_surgeon(env._state.copy(), gt)
+                else:
+                    ok,msg = load_llm()
+                    if not ok:
+                        yield (f"<div class='err-banner'>{_e(msg)}</div>",
+                               _accuracy_display(acc_before,None),
+                               _diff_html(dirty,env._state,gt), None, session_state)
+                        return
+                    obs = env._make_observation()
+                    msgs = [{"role":"system","content":build_prompt(obs)},
+                            {"role":"user","content":f"Observation: {obs.model_dump_json()}\nOutput valid JSON only."}]
+                    try:
+                        out  = _run_llm(msgs)
+                        raw  = out[0]["generated_text"][-1]["content"]
+                        action = robust_parse_action(raw, require_fields=True)
+                    except Exception as exc:
+                        action = SurgeonAction(reasoning=f"LLM error: {str(exc)[:40]}",tool_id=7,column=0,row_id=0)
+
+                _, total_reward, done, info = env.step(action)
+                obs2 = env._make_observation()
+                rollouts.append({
+                    "reasoning":        action.reasoning.replace("EXACT_PARSE:","").strip(),
+                    "tool_name":        SURGEON_TOOLS.get(action.tool_id,{"name":"?"})["name"],
+                    "reward":           total_reward,
+                    "row_id":           action.row_id,
+                    "column_name":      cols[action.column] if action.column < len(cols) else "?",
+                    "components":       info.get("reward_components",{}),
+                    "violation_type":   getattr(obs2,"violation_type",""),
+                    "target_cell_hint": getattr(obs2,"target_cell_hint",""),
+                })
+
+                ro, acc_d, diff = _rollout_html(rollouts, dirty, env._state, gt, acc_before, agent_type, MAX)
+                repaired = env._state[cols].head(8).copy()
+                yield ro, acc_d, diff, repaired, session_state
+                if done: break
+
+        exec_btn.click(
+            fn=simulate_with_repaired,
+            inputs=[agent_pick, state],
+            outputs=[rollout_out, acc_display, diff_out, repaired_view, state],
+        )
+
+        refresh_btn.click(fn=load_dash, outputs=[topbar, bench_html, reward_plot, diff_plot])
+        demo.load(fn=load_dash, outputs=[topbar, bench_html, reward_plot, diff_plot])
+
+    return demo
+
+
+demo = build_demo()
+
+if __name__ == "__main__":
+    server_name = os.getenv("GRADIO_SERVER_NAME", "0.0.0.0")
+    server_port = int(os.getenv("PORT", os.getenv("GRADIO_SERVER_PORT", "7860")))
+    demo.queue(default_concurrency_limit=8).launch(
+        server_name=server_name, 
+        server_port=server_port,
+        css=CSS,
+        theme=gr.themes.Base()
+    

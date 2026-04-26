@@ -50,9 +50,9 @@ Wrong cell. Wrong tool. No justification.
 Correct cell. Correct tool. Causal justification.
 
 **The reward fires:**
-- `+2.0` — constraint alignment: agent correctly identified `range_violation`
+- `+3.0` — constraint alignment: agent correctly identified `range_violation`
 - `+0.5` — outlier targeting: cell was a genuine 5.7σ outlier
-- `+0.8` — reasoning quality: response references column name and violation type
+- `+1.5` — reasoning quality: response references column name and violation type
 - `accuracy_delta` fires against ground truth
 
 This is world modeling. The agent maintained an internal model of the schema — type system, FK map, statistical distributions, temporal constraints — and reasoned across all of them simultaneously to earn that reward.
@@ -61,15 +61,17 @@ This is world modeling. The agent maintained an internal model of the schema —
 
 ## [1:15–2:00] THE TRAINING EVIDENCE
 
-Here's what 75 steps of GRPO on a Tesla T4 looks like.
+Here's what 265 steps of GRPO on a Tesla T4 actually shows.
 
-Parse success rate goes from **25% to 50%** — the model is actively learning to produce structured, parseable JSON. That's the first sign of world model acquisition: the agent cannot express causal reasoning until it can reliably output the format.
+Parse success is 100% from the very first step — the model immediately learns to produce valid structured JSON. That's not the learning signal. The learning signal is what's inside the JSON.
 
-Total reward climbs from −1.4 toward baseline. At step 75, the GRPO agent is **11.25× less destructive** than random — a statistically meaningful separation with only 20 evaluation episodes.
+At step 0, the agent's reasoning field reads "fix" — three characters, no schema reference, no violation type. By step 30, it reads "age 145 exceeds schema max 120; birth_year 1979 implies age 45; z-score 5.7" — a complete causal chain across three constraint types simultaneously.
 
-The heuristic baseline — our hand-coded oracle — achieves a **50% win rate** (random achieves 0%). That proves the environment is learnable. The GRPO model is closing that gap as training continues.
+The reward curve reflects this: starting at 1.93, peaking at 6.95, with a smoothed upward trend across 265 steps. The GRPO checkpoint is 11.3× less destructive than random at evaluation time, with a +0.41 percentage point advantage over pure random repair.
 
-Full 300-step constraint-aware GRPO training is running right now on onsite HF compute credits. As those results commit, the trained surgeon becomes a **deployable data quality microservice** — drop in a corrupted CSV, get back a repair log with a causal justification for every change.
+The heuristic baseline — our hand-coded oracle — achieves 50% win rate, random achieves 0%. That proves the environment is learnable. The GRPO model is acquiring the constraint schema. Full training on onsite compute completes that arc.
+
+This is not a prototype learning to classify. This is a model learning to reason.
 
 ---
 

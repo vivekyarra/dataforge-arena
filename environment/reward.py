@@ -4,6 +4,20 @@ import numpy as np
 
 
 class RewardComputer:
+    """
+    Constraint-aware reward computer for DataForge Arena.
+
+    Reward scaling (v2 — balanced signals):
+        accuracy_delta × 50     — bounded, no longer dominates
+        constraint_alignment    — max +3.0 (was +2.0)
+        schema_alignment        — max +2.0 (was +1.0)
+        outlier_targeting       — max +0.5
+        reasoning_quality       — max +1.5 (was +0.8)
+        parse_bonus             — max +0.5
+        anti_hack               — min −5.0
+
+    Total reward range: approximately [−5.0, +8.0]
+    """
 
     def compute(self, state, ground_truth, action, original_dirty, prev_accuracy,
                 episode_start, step_count, starting_accuracy=None, previous_state=None,
@@ -15,7 +29,8 @@ class RewardComputer:
         rewards = {}
         current_acc = self._field_accuracy(state, ground_truth)
         delta = current_acc - prev_accuracy
-        rewards["accuracy_delta"] = delta * 250.0
+        # Reduced multiplier from 250 to 50 so shaped signals are competitive
+        rewards["accuracy_delta"] = delta * 50.0
         rewards["_current_accuracy"] = current_acc
 
         rewards["constraint_alignment"] = self._score_constraint_alignment(
@@ -26,7 +41,11 @@ class RewardComputer:
             action, state, ground_truth, previous_state
         )
         rewards["reasoning_quality"] = self._score_causal_reasoning(action, state, schema)
-        rewards["parse_bonus"] = 0.5 if action.reasoning.startswith("EXACT_PARSE:") else 0.0
+
+        # parse_bonus: award when the model produced a clean, valid JSON action
+        # (no longer depends on "EXACT_PARSE:" prefix which was never reliably set)
+        rewards["parse_bonus"] = self._score_parse_bonus(action)
+
         rewards["anti_hack"] = self._detect_shortcuts(state, original_dirty)
 
         rewards["total"] = (
@@ -42,6 +61,33 @@ class RewardComputer:
         start_acc = starting_accuracy if starting_accuracy is not None else prev_accuracy
         rewards["episode_complete"] = (current_acc >= 0.999) or ((current_acc - start_acc) > 0.05)
         return rewards
+
+    def _score_parse_bonus(self, action) -> float:
+        """
+        Award +0.5 when the model produced a clean, structurally valid action.
+
+        Criteria (all must be true):
+            - action.reasoning is not None
+            - len(action.reasoning) > 10
+            - reasoning does not start with "LLM error"
+            - tool_id is in valid range [0, 7]
+            - column >= 0
+            - row_id >= 0
+        """
+        reasoning = action.reasoning
+        if reasoning is None:
+            return 0.0
+        if len(reasoning) <= 10:
+            return 0.0
+        if reasoning.startswith("LLM error"):
+            return 0.0
+        if action.tool_id not in range(8):
+            return 0.0
+        if action.column < 0:
+            return 0.0
+        if action.row_id < 0:
+            return 0.0
+        return 0.5
 
     def _score_constraint_alignment(self, action, state, ground_truth, schema) -> float:
         if schema is None:
@@ -67,18 +113,28 @@ class RewardComputer:
                     return +0.6
                 return -1.0
 
+            # Correct tool-violation pairings (max +3.0)
             if violation == "null_numeric" and tool == "IMPUTE_MEDIAN":
-                return +2.0
+                return +3.0
             if violation == "null_categorical" and tool in ("IMPUTE_MODE", "IMPUTE_FORWARD_FILL"):
-                return +2.0
+                return +3.0
+
+            # CRITICAL FIX: CORRECT_FORMAT on null_numeric is WRONG — should
+            # return 0.0, not +3.0. This was causing tool-3 collapse because
+            # the model earned high reward using CORRECT_FORMAT on null cells.
+            if violation == "null_numeric" and tool == "CORRECT_FORMAT":
+                return 0.0
+            if violation == "null_categorical" and tool == "CORRECT_FORMAT":
+                return 0.0
+
             if violation == "range" and tool == "CORRECT_FORMAT":
-                return +2.0
+                return +3.0
             if violation == "type_error" and tool == "CORRECT_FORMAT":
-                return +2.0
+                return +3.0
             if violation == "enum_violation" and tool == "CORRECT_FORMAT":
-                return +1.5
+                return +2.5
             if violation == "fk_mismatch" and tool == "CORRECT_FORMAT":
-                return +2.0
+                return +3.0
             if violation is not None and tool == "NO_OP":
                 return -2.0
             if violation is not None and tool != "NO_OP":
@@ -131,6 +187,9 @@ class RewardComputer:
         return None
 
     def _score_schema_alignment(self, action, state, schema) -> float:
+        """
+        Schema alignment: max +2.0 (was +1.0).
+        """
         if schema is None:
             return 0.0
         try:
@@ -149,7 +208,7 @@ class RewardComputer:
 
             if action.tool_id in impute_tools:
                 if action.tool_id == correct_impute:
-                    return +1.0
+                    return +2.0
                 return -0.5
             return 0.0
         except Exception:
@@ -184,9 +243,10 @@ class RewardComputer:
             return 0.0
 
     def _score_causal_reasoning(self, action, state, schema) -> float:
+        """
+        Reasoning quality: max +1.5 (was +0.8).
+        """
         reasoning = action.reasoning
-        if reasoning.startswith("EXACT_PARSE: "):
-            reasoning = reasoning[len("EXACT_PARSE: "):]
         reasoning = reasoning.strip().lower()
 
         if len(reasoning) < 5:
@@ -201,12 +261,12 @@ class RewardComputer:
             if action.column < len(display_cols):
                 col_name = display_cols[action.column].lower()
                 if col_name in reasoning or col_name.replace("_", " ") in reasoning:
-                    score += 0.3
+                    score += 0.4
         except Exception:
             pass
 
         violation_keywords = {
-            "null": 0.2, "missing": 0.2, "none": 0.1, "nan": 0.1,
+            "null": 0.3, "missing": 0.3, "none": 0.1, "nan": 0.1,
             "range": 0.3, "exceed": 0.3, "above": 0.2, "below": 0.2,
             "max": 0.2, "min": 0.2, "constraint": 0.2,
             "type": 0.2, "err_": 0.2, "format": 0.2, "invalid": 0.2,
@@ -221,9 +281,9 @@ class RewardComputer:
 
         causal_connectors = ["because", "since", "implies", "therefore", "so", "hence", "means"]
         if any(c in reasoning for c in causal_connectors):
-            score += 0.2
+            score += 0.3
 
-        return min(score, 0.8)
+        return min(score, 1.5)
 
     def _field_accuracy(self, state: pd.DataFrame, ground_truth: pd.DataFrame) -> float:
         state_vals = state.drop(columns=["_is_deleted"], errors="ignore")

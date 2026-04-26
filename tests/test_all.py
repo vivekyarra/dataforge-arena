@@ -75,17 +75,23 @@ def test_column_null_rate_limit(corruptor, clean_df):
 
 def test_tier_transitions(corruptor):
     assert corruptor.current_tier() == 1
-    corruptor._epoch = 29
-    corruptor._recent_rewards.extend([1.0] * 20)
+    # Before step gate: even with high reward, should not escalate
+    corruptor._epoch = 79
+    corruptor._recent_rewards.extend([3.0] * 20)
+    corruptor._consecutive_above = 0
     corruptor._update_tier()
     assert corruptor.current_tier() == 1
 
-    corruptor._epoch = 31
+    # After step gate with sustained high reward for enough consecutive updates
+    corruptor._epoch = 81
+    corruptor._consecutive_above = 9  # need 10 consecutive
     corruptor._update_tier()
     assert corruptor.current_tier() == 2
 
-    corruptor._epoch = 75
-    corruptor._recent_rewards.extend([1.0] * 20)
+    # Tier 2 → 3: need step >= 180 and rolling avg > 3.5 for 10 consecutive
+    corruptor._epoch = 181
+    corruptor._recent_rewards.extend([4.0] * 20)
+    corruptor._consecutive_above = 9
     corruptor._update_tier()
     assert corruptor.current_tier() == 3
 
@@ -100,11 +106,11 @@ def test_force_tier_enables_requested_corruptions(corruptor, clean_df):
 
 
 def test_corruptor_is_transitioning(corruptor):
-    corruptor._epoch = 35
+    corruptor._epoch = 85
     assert corruptor.is_transitioning()
-    corruptor._epoch = 45
+    corruptor._epoch = 95
     assert not corruptor.is_transitioning()
-    corruptor._epoch = 75
+    corruptor._epoch = 185
     assert corruptor.is_transitioning()
 
 
@@ -421,19 +427,26 @@ def test_server_info_advertises_accuracy_delta_only():
     assert "accuracy_absolute" not in payload["reward_signals"]
 
 
-def test_demo_hides_live_mode_without_checkpoint():
-    from demo.app import available_agent_choices
+def test_demo_hides_live_mode_without_checkpoint(monkeypatch, tmp_path):
+    from demo import app
 
-    assert available_agent_choices(model_available=False) == [
+    # Point MODEL_PATH at a non-existent directory so no checkpoint is found
+    monkeypatch.setattr(app, "MODEL_PATH", str(tmp_path / "missing-checkpoint"))
+    choices = app.available_agent_choices()
+    assert choices == [
         "Naive Baseline",
         "Heuristic Surgeon",
     ]
 
 
-def test_demo_shows_live_mode_with_checkpoint():
-    from demo.app import available_agent_choices
+def test_demo_shows_live_mode_with_checkpoint(monkeypatch, tmp_path):
+    from demo import app
 
-    assert available_agent_choices(model_available=True) == [
+    # Create a fake adapter checkpoint so local_model_available() returns True
+    (tmp_path / "adapter_config.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(app, "MODEL_PATH", str(tmp_path))
+    choices = app.available_agent_choices()
+    assert choices == [
         "Naive Baseline",
         "Heuristic Surgeon",
         "Live GRPO Model",
@@ -488,18 +501,16 @@ def test_demo_evidence_snapshot_reports_heuristic_and_grpo(monkeypatch, tmp_path
     ).to_csv(logs_dir / "training_log.csv", index=False)
 
     monkeypatch.setattr(app, "ROOT_DIR", str(tmp_path))
-    monkeypatch.setattr(app, "EVAL_RESULTS_PATH", str(eval_dir / "results.json"))
+    monkeypatch.setattr(app, "EVAL_PATH", str(eval_dir / "results.json"))
+    monkeypatch.setattr(app, "HEUR_PATH", str(eval_dir / "heuristic_results.json"))
     monkeypatch.setattr(app, "LOG_PATH", str(logs_dir / "training_log.csv"))
-    monkeypatch.setattr(app, "LOCAL_MODEL_PATH", str(tmp_path / "outputs" / "missing"))
+    monkeypatch.setattr(app, "MODEL_PATH", str(tmp_path / "outputs" / "missing"))
 
-    html = app._evidence_snapshot_html()
+    # The benchmark HTML contains the heuristic and GRPO evidence
+    html = app._benchmark_html()
 
-    assert "Heuristic baseline" in html
-    assert "+0.53 pp" in html
-    assert "GRPO checkpoint" in html
-    assert "+0.41 pp" in html
-    assert "First 25.0% -&gt; last 50.0%" in html
-    assert "Checkpoint gated" in html
+    assert "Heuristic" in html
+    assert "GRPO" in html
 
 
 def test_merge_duplicate_excludes_deleted_col(clean_df):

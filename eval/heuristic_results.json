@@ -11,5 +11,7 @@
   "surgeon_advantage_accuracy_delta": 0.0053,
   "surgeon_win_rate": 0.5,
   "random_win_rate": 0.0,
-  "note": "Heuristic surgeon baseline preserved separately from final GRPO checkpoint evaluation."
+  "destruction_ratio": 0.2326,
+  "improvement_vs_random_pct": 123.26,
+  "note": "Heuristic surgeon results. No trained GRPO checkpoint was used."
 }

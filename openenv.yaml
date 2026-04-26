@@ -51,13 +51,13 @@ task:
 reward:
   primary_signal: accuracy_delta
   shaping_terms:
-    - constraint_alignment      # Did agent correctly identify the violation type?
-    - schema_alignment          # Did agent select the right tool for the column type?
-    - outlier_targeting         # Did agent target a genuine statistical outlier (z > 3σ)?
-    - reasoning_quality         # Does reasoning reference column name + violation type?
-    - parse_bonus               # Clean, parseable JSON output
-    - anti_hack                 # Prevents mass-deletion reward hacking
-  range: [-5.0, 5.0]
+    - constraint_alignment      # Did agent correctly identify the violation type? (+3.0)
+    - schema_alignment          # Did agent select the right tool for the column type? (+2.0)
+    - outlier_targeting         # Did agent target a genuine statistical outlier (z > 3σ)? (+0.5)
+    - reasoning_quality         # Does reasoning reference column name + violation type? (+1.5)
+    - parse_bonus               # Clean, valid JSON output with reasoning > 10 chars (+0.5)
+    - anti_hack                 # Prevents mass-deletion reward hacking (−5.0)
+  range: [-5.0, 8.0]
 
 # Schemas
 schemas:
@@ -79,7 +79,7 @@ corruption:
     - fk_mismatch
     - semantic_temporal_drift
     - currency_amount_inconsistency
-  escalation: reward_gate_and_epoch_gate
+  escalation: rolling_avg_reward_gate_with_step_gate_and_deescalation
 
 # Training
 training:
@@ -89,6 +89,10 @@ training:
     - unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit
     - unsloth/Llama-3.2-3B-Instruct-bnb-4bit
     - unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit
+  temperature_schedule:
+    start: 0.8
+    end: 0.2
+    decay_steps: 200
 
 # Evaluation
 evaluation:
@@ -100,6 +104,8 @@ evaluation:
     - random_avg_accuracy_delta
     - surgeon_advantage_accuracy_delta
     - surgeon_win_rate
+    - destruction_ratio
+    - improvement_vs_random_pct
     - constraint_alignment_rate
     - schema_alignment_rate
 

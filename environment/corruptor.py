@@ -11,13 +11,30 @@ logger = logging.getLogger(__name__)
 
 
 class Corruptor:
-    TIER_EPOCH_GATES = {2: 30, 3: 70}
-    TIER_REWARD_GATES = {2: 0.5, 3: 0.9}
+    """
+    Adversarial corruptor with adaptive curriculum escalation.
+
+    Tier escalation uses a rolling 10-step average reward, not
+    instantaneous reward.  Gates:
+        Tier 1 → 2: rolling avg > 2.5 for 10 consecutive steps AND step >= 80
+        Tier 2 → 3: rolling avg > 3.5 for 10 consecutive steps AND step >= 180
+
+    De-escalation: if rolling avg < 1.0 for 5 consecutive steps, drop one tier.
+    """
+
+    TIER_STEP_GATES = {2: 80, 3: 180}
+    TIER_REWARD_GATES = {2: 2.5, 3: 3.5}
+    ESCALATION_WINDOW = 10        # consecutive steps above threshold to escalate
+    DEESCALATION_THRESHOLD = 1.0
+    DEESCALATION_WINDOW = 5       # consecutive steps below threshold to de-escalate
 
     def __init__(self):
         self._epoch = 0
-        self._recent_rewards = deque(maxlen=20)
+        self._recent_rewards = deque(maxlen=50)
         self._unlocked_tier = 1
+        # Track consecutive steps above/below thresholds
+        self._consecutive_above = 0
+        self._consecutive_below = 0
 
     @property
     def difficulty(self) -> int:
@@ -31,34 +48,61 @@ class Corruptor:
     def force_tier(self, tier: int):
         tier = min(max(int(tier), 1), 3)
         self._recent_rewards.clear()
-        self._epoch = {1: 0, 2: self.TIER_EPOCH_GATES[2], 3: self.TIER_EPOCH_GATES[3]}[tier]
+        self._epoch = {1: 0, 2: self.TIER_STEP_GATES[2], 3: self.TIER_STEP_GATES[3]}[tier]
         self._unlocked_tier = tier
+        self._consecutive_above = 0
+        self._consecutive_below = 0
 
-    def _rolling_avg(self) -> float:
+    def _rolling_avg(self, window: int = 10) -> float:
         if not self._recent_rewards:
             return -99.0
-        return sum(self._recent_rewards) / len(self._recent_rewards)
+        recent = list(self._recent_rewards)[-window:]
+        return sum(recent) / len(recent)
 
     def _update_tier(self):
+        rolling = self._rolling_avg(self.ESCALATION_WINDOW)
+
+        # --- De-escalation check ---
+        if rolling < self.DEESCALATION_THRESHOLD and len(self._recent_rewards) >= self.DEESCALATION_WINDOW:
+            self._consecutive_below += 1
+            if self._consecutive_below >= self.DEESCALATION_WINDOW and self._unlocked_tier > 1:
+                old_tier = self._unlocked_tier
+                self._unlocked_tier -= 1
+                self._consecutive_below = 0
+                self._consecutive_above = 0
+                logger.info(
+                    "Corruptor DE-ESCALATED tier %s → %s: epoch=%s, rolling_avg=%.3f",
+                    old_tier, self._unlocked_tier, self._epoch, rolling,
+                )
+                return
+        else:
+            self._consecutive_below = 0
+
+        # --- Escalation check ---
         for candidate_tier in [2, 3]:
             if self._unlocked_tier >= candidate_tier:
                 continue
-            epoch_ok = self._epoch >= self.TIER_EPOCH_GATES[candidate_tier]
-            reward_ok = self._rolling_avg() >= self.TIER_REWARD_GATES[candidate_tier]
-            if epoch_ok and reward_ok:
-                self._unlocked_tier = candidate_tier
-                logger.info(
-                    "Corruptor tier %s unlocked: epoch=%s, rolling_avg=%.3f",
-                    candidate_tier,
-                    self._epoch,
-                    self._rolling_avg(),
-                )
+            step_ok = self._epoch >= self.TIER_STEP_GATES[candidate_tier]
+            reward_ok = rolling >= self.TIER_REWARD_GATES[candidate_tier]
+
+            if step_ok and reward_ok:
+                self._consecutive_above += 1
+                if self._consecutive_above >= self.ESCALATION_WINDOW:
+                    self._unlocked_tier = candidate_tier
+                    self._consecutive_above = 0
+                    logger.info(
+                        "Corruptor ESCALATED to tier %s: epoch=%s, rolling_avg=%.3f",
+                        candidate_tier, self._epoch, rolling,
+                    )
+            else:
+                self._consecutive_above = 0
+            break  # Only check the next tier up
 
     def current_tier(self) -> int:
         return self._unlocked_tier
 
     def is_transitioning(self) -> bool:
-        for gate in self.TIER_EPOCH_GATES.values():
+        for gate in self.TIER_STEP_GATES.values():
             if gate <= self._epoch < gate + 10:
                 return True
         return False

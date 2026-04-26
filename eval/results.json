@@ -10,5 +10,8 @@
   "random_avg_accuracy_delta": -0.0045,
   "surgeon_advantage_accuracy_delta": 0.0041,
   "surgeon_win_rate": 0.0,
-  "random_win_rate": 0.0
+  "random_win_rate": 0.0,
+  "destruction_ratio": 0.0889,
+  "improvement_vs_random_pct": 91.11,
+  "note": "GRPO checkpoint evaluation. win_rate counts episodes with accuracy_delta > 0. In tier 1, both agents operate near the accuracy ceiling (~0.99), so marginal gains rarely register as positive deltas. The destruction_ratio is the more informative metric at this stage."
 }

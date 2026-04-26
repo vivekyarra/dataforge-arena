@@ -1,6 +1,13 @@
 """
 DataForge Arena -- GRPO Training Script
 Run on campus with HF compute credits.
+
+Changes from audit:
+  - Logger columns match RewardComputer.compute() keys exactly
+  - Tool diversity penalty (−0.3 when >60% same tool in batch)
+  - Temperature scheduling: 0.8 → 0.2 by step 200
+  - Reward function verification: warn if shaped total < 0.1 for 3+ batches
+  - CORRECT_FORMAT on null_numeric returns 0.0 (fixed in reward.py)
 """
 from __future__ import annotations
 
@@ -87,6 +94,24 @@ model = FastLanguageModel.get_peft_model(
 
 episode_cache = {}
 _EPISODE_KEY_RE = _re.compile(r"EPISODE_CACHE_KEY:\s*([0-9a-f]{12})")
+
+# --- Temperature scheduling ---
+# Start at 0.8, decay linearly to 0.2 by step 200, hold at 0.2 after.
+TEMP_START = 0.8
+TEMP_END = 0.2
+TEMP_DECAY_STEPS = 200
+
+
+def _scheduled_temperature(step: int) -> float:
+    if step >= TEMP_DECAY_STEPS:
+        return TEMP_END
+    progress = step / TEMP_DECAY_STEPS
+    return TEMP_START - (TEMP_START - TEMP_END) * progress
+
+
+# --- Shaped reward verification ---
+# Track consecutive batches where shaped total < 0.1
+_consecutive_low_shaped = [0]
 
 
 def _tier_for_example(index: int, total_examples: int) -> int:
@@ -207,7 +232,21 @@ def _dominant_tool_snapshot(history: list[dict], window: int = 24) -> tuple[int,
     return dominant_tool, dominant_count / max(len(recent), 1)
 
 
-# CHANGE 1 — violation_type alignment bonus added to _contextual_reward_shaping()
+def _tool_diversity_penalty(batch_actions: list[dict], threshold: float = 0.60) -> float:
+    """
+    If more than 60% of actions in the batch use the same tool_id,
+    apply a −0.3 diversity penalty.
+    """
+    if len(batch_actions) < 4:
+        return 0.0
+    tool_counts = Counter(a.get("tool_id", -1) for a in batch_actions)
+    _, top_count = tool_counts.most_common(1)[0]
+    if top_count / len(batch_actions) > threshold:
+        return -0.3
+    return 0.0
+
+
+# violation_type alignment bonus added to _contextual_reward_shaping()
 def _contextual_reward_shaping(action, episode: dict, parse_mode: str, training_step: int) -> float:
     shaping = 0.0
 
@@ -298,7 +337,6 @@ def build_dataset(n=200) -> Dataset:
             "difficulty": obs.difficulty,
             "total_errors": obs.total_errors,
             "suspect_column_indices": _extract_suspect_column_indices(obs.rows_json, env._schema),
-            # CHANGE 2 — store violation_type and column_stats from the initial observation
             "violation_type": getattr(obs, 'violation_type', ''),
             "column_stats": getattr(obs, 'column_stats', ''),
         }
@@ -321,17 +359,25 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
     """
     Evaluate each completion by restoring the exact cached episode state from
     the prompt. The reward loop must never blind-reset into a different sample.
+
+    All reward components from RewardComputer.compute() are accumulated and
+    logged with their EXACT key names. The shaped signals (constraint_alignment,
+    schema_alignment, outlier_targeting, reasoning_quality, parse_bonus) are
+    all included in the scalar reward returned to the trainer.
     """
     rewards = []
+    # Accumulate ALL reward component keys from RewardComputer
     component_accum = {
         "accuracy_delta": [],
-        "tool_logic": [],
-        "reasoning": [],
-        "efficiency": [],
+        "constraint_alignment": [],
+        "schema_alignment": [],
+        "outlier_targeting": [],
+        "reasoning_quality": [],
+        "parse_bonus": [],
         "anti_hack": [],
-        "policy_shaping": [],
     }
     batch_difficulties = []
+    batch_actions = []  # for tool diversity penalty
 
     for idx, completion in enumerate(completions):
         total_rollouts[0] += 1
@@ -348,7 +394,6 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         env._original_dirty = episode["original_dirty"].copy()
         env._prev_accuracy = episode["prev_accuracy"]
         env._starting_accuracy = episode["starting_accuracy"]
-        # CHANGE 3 — restore schema on env (verified present)
         env._schema = episode["schema"]
         env._step_count = 0
         env._action_log = []
@@ -372,8 +417,6 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
                 rewards.append(structural_penalty)
                 continue
 
-        # CHANGE 4 — env.step() uses schema internally; episode now carries violation_type
-        # which _contextual_reward_shaping() reads from the episode dict directly.
         _, reward, _, info = env.step(action)
         policy_shaping = _contextual_reward_shaping(action, episode, parse_mode, current_step[0])
         if info.get("invalid_action"):
@@ -382,17 +425,48 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
 
         reward += structural_penalty + policy_shaping
         structural_penalty_total[0] += structural_penalty
-        recent_actions.append(action.model_dump())
+
+        # Track batch actions for diversity penalty
+        action_dict = action.model_dump()
+        batch_actions.append(action_dict)
+        recent_actions.append(action_dict)
         if len(recent_actions) > 100:
             recent_actions.pop(0)
 
+        # Extract reward components from env.step() info — these are the EXACT
+        # keys from RewardComputer.compute()
+        rc = info.get("reward_components", {})
         for key in component_accum:
-            if key == "policy_shaping":
-                component_accum[key].append(policy_shaping)
-            else:
-                component_accum[key].append(info.get("reward_components", {}).get(key, 0.0))
+            component_accum[key].append(rc.get(key, 0.0))
 
         rewards.append(reward)
+
+    # Apply tool diversity penalty to all rewards in this batch
+    diversity_penalty = _tool_diversity_penalty(batch_actions)
+    if diversity_penalty < 0:
+        rewards = [r + diversity_penalty for r in rewards]
+
+    # --- Shaped reward verification ---
+    # Check that shaped signals are actually being included in the reward
+    if component_accum["constraint_alignment"]:
+        shaped_total = (
+            abs(sum(component_accum["constraint_alignment"])) +
+            abs(sum(component_accum["schema_alignment"])) +
+            abs(sum(component_accum["outlier_targeting"])) +
+            abs(sum(component_accum["reasoning_quality"])) +
+            abs(sum(component_accum["parse_bonus"]))
+        )
+        avg_shaped = shaped_total / max(len(component_accum["constraint_alignment"]), 1)
+        if avg_shaped < 0.1:
+            _consecutive_low_shaped[0] += 1
+            if _consecutive_low_shaped[0] >= 3:
+                print(
+                    f"[WARNING] Shaped reward signals < 0.1 for {_consecutive_low_shaped[0]} "
+                    f"consecutive batches — check that constraint_alignment, schema_alignment, "
+                    f"outlier_targeting, reasoning_quality, and parse_bonus are firing."
+                )
+        else:
+            _consecutive_low_shaped[0] = 0
 
     if current_step[0] % 5 == 0:
         avg_components = {key: sum(values) / max(len(values), 1) for key, values in component_accum.items()}
@@ -402,7 +476,6 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
         parse_rate = parse_successes[0] / max(total_rollouts[0], 1) * 100
         recovered_rate = parse_recoveries[0] / max(total_rollouts[0], 1) * 100
         invalid_rate = invalid_actions[0] / max(total_rollouts[0], 1) * 100
-        # CHANGE 5 — log violation_type in every logger.log() call
         logger.log(
             step=current_step[0],
             reward_dict={"total": avg_reward, **avg_components},
@@ -421,7 +494,8 @@ def reward_fn(completions: list, prompts: list, **kwargs) -> list:
             f"Step {current_step[0]:3d} | reward={avg_reward:+.3f} | "
             f"difficulty={logged_difficulty} | exact={parse_rate:.0f}% | "
             f"recovered={recovered_rate:.0f}% | invalid={invalid_rate:.0f}% | "
-            f"tool={dominant_tool}@{dominant_tool_rate:.0%}"
+            f"tool={dominant_tool}@{dominant_tool_rate:.0%} | "
+            f"temp={_scheduled_temperature(current_step[0]):.2f}"
         )
         parse_successes[0] = 0
         parse_recoveries[0] = 0
@@ -443,15 +517,20 @@ print(f"Target: {model_cfg['target_steps']} steps\n")
 if not hasattr(model, "warnings_issued"):
     model.warnings_issued = {}
 
+# Temperature scheduling: start at 0.8, the GRPOConfig gets the initial value.
+# During training, the reward_fn prints the scheduled temperature for monitoring.
+# Note: TRL's GRPOTrainer uses the config temperature for generation. To truly
+# schedule temperature per-step, we patch the generation_config before each call.
+initial_temperature = _scheduled_temperature(0)
+
 trainer = GRPOTrainer(
     model=model,
     reward_funcs=reward_fn,
-    # CHANGE 6 — GRPOConfig: temperature=0.85, beta=0.005, learning_rate=4e-5, max_steps=300
     args=GRPOConfig(
         output_dir="outputs/dataforge-surgeon",
         num_generations=model_cfg["num_generations"],
         max_completion_length=model_cfg.get("max_completion_length", 128),
-        temperature=0.85,
+        temperature=initial_temperature,
         beta=0.005,
         learning_rate=4e-5,
         warmup_ratio=0.08,
@@ -470,6 +549,23 @@ trainer = GRPOTrainer(
     ),
     train_dataset=train_dataset,
 )
+
+# --- Temperature scheduling hook ---
+# Patch the generation config's temperature before each training step
+_original_train_step = trainer.training_step
+
+
+def _patched_training_step(*args, **kwargs):
+    step = current_step[0]
+    new_temp = _scheduled_temperature(step)
+    if hasattr(trainer, 'generation_config') and trainer.generation_config is not None:
+        trainer.generation_config.temperature = new_temp
+    elif hasattr(trainer.model, 'generation_config') and trainer.model.generation_config is not None:
+        trainer.model.generation_config.temperature = new_temp
+    return _original_train_step(*args, **kwargs)
+
+
+trainer.training_step = _patched_training_step
 
 trainer.train()
 trainer.save_model("outputs/dataforge-surgeon")

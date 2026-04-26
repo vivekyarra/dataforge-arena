@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import html
 import json
@@ -46,9 +46,9 @@ logger.setLevel(os.getenv("DATAFORGE_LOG_LEVEL", "INFO"))
 logger.propagate = False
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════════════════════════════
 #  INFRASTRUCTURE
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════════════════════════════
 
 def _e(v) -> str:
     return html.escape(str(v), quote=True)
@@ -104,7 +104,7 @@ def get_training_data():
     return pd.DataFrame({"step":[0],"total_reward":[0],"difficulty":[1]})
 
 def _fmt_pp(v):
-    return f"{float(v)*100:+.2f} pp" if v is not None else "â€”"
+    return f"{float(v)*100:+.2f} pp" if v is not None else "—"
 
 def _agent_label(t):
     return {"Naive Baseline":"Naive Baseline","Heuristic Surgeon":"Heuristic Surgeon"}.get(t,"Live GRPO")
@@ -130,9 +130,9 @@ def _run_llm(messages):
                                 do_sample=False, num_return_sequences=1)
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════════════════════════════
 #  DESIGN SYSTEM
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════════════════════════════
 
 def _ring_svg(value: float | None, label: str, tone: str = "neutral",
               size: int = 108, sw: int = 9) -> str:
@@ -153,7 +153,7 @@ def _ring_svg(value: float | None, label: str, tone: str = "neutral",
         txt    = f"{value:.1%}"
     else:
         da  = f"0 {circ:.2f}"
-        txt = "â€”"
+        txt = "—"
     cx = cy = size / 2
     return f"""
 <svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
@@ -204,9 +204,9 @@ def _cell(v) -> str:
     return _e(v)
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════════════════════════════
 #  HTML SECTIONS
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════════════════════════════
 
 def _topbar_html() -> str:
     ev   = _read_json(EVAL_PATH)
@@ -283,7 +283,7 @@ def _accuracy_display(acc_before, acc_after) -> str:
     after_ring  = _ring_svg(acc_after,  "After",  after_tone)
     if delta is not None:
         d_col = "#00ff88" if delta >= 0 else "#ff3d57"
-        d_sym = "â†‘" if delta >= 0 else "â†“"
+        d_sym = "↑" if delta >= 0 else "↓"
         delta_html = f"""
         <div class="acc-delta" style="color:{d_col};">
           <div class="acc-delta-sym">{d_sym}</div>
@@ -291,7 +291,7 @@ def _accuracy_display(acc_before, acc_after) -> str:
           <div class="acc-delta-label">delta</div>
         </div>"""
     else:
-        delta_html = "<div class='acc-delta-empty'>â€”</div>"
+        delta_html = "<div class='acc-delta-empty'>—</div>"
     return f"""
 <div class="acc-rings">
   <div class="ring-wrap">{before_ring}</div>
@@ -336,7 +336,7 @@ def _diff_html(original, current, gt) -> str:
             for badge,bc,ri,col,bef,aft,tgt in rows)
 
     def rows_broken(rows):
-        if not rows: return "<tr><td colspan='4' class='dt-empty'>All aligned âœ“</td></tr>"
+        if not rows: return "<tr><td colspan='4' class='dt-empty'>All aligned ✓</td></tr>"
         return "".join(
             f"<tr><td>{ri}</td><td>{_e(col)}</td><td>{aft}</td><td>{tgt}</td></tr>"
             for ri,col,aft,tgt in rows)
@@ -382,7 +382,7 @@ def _rollout_html(rollouts, dirty, current, gt, acc_before, agent_type,
     pct          = min(100, (done_steps + (0.4 if pending_step else 0)) / total_steps * 100)
 
     last = rollouts[-1] if rollouts else {}
-    lr   = last.get("reasoning",""); lr = lr[:64]+"â€¦" if len(lr)>64 else lr
+    lr   = last.get("reasoning",""); lr = lr[:64]+"…" if len(lr)>64 else lr
     lviol= last.get("violation_type","")
     ltool= last.get("tool_name","")
 
@@ -391,14 +391,14 @@ def _rollout_html(rollouts, dirty, current, gt, acc_before, agent_type,
     for i, r in enumerate(rollouts):
         rew   = r.get("reward", 0)
         win   = rew >= 0
-        rsn   = r.get("reasoning",""); rsn = rsn[:52]+"â€¦" if len(rsn)>52 else rsn
+        rsn   = r.get("reasoning",""); rsn = rsn[:52]+"…" if len(rsn)>52 else rsn
         tnm   = r.get("tool_name","?")
         rowid = r.get("row_id","?")
         coln  = r.get("column_name","?")
         vt    = r.get("violation_type","")
         traj += f"""
 <div class="tr-row {'tr-win' if win else 'tr-loss'}">
-  <span class="tr-n">{'âœ“' if win else 'âœ—'}{i+1:02d}</span>
+  <span class="tr-n">{'✓' if win else '✗'}{i+1:02d}</span>
   <span class="tr-rsn">{_e(rsn)}</span>
   <span class="tr-tool">{_e(tnm)}</span>
   <span class="tr-loc">r{rowid}/{_e(coln)}</span>
@@ -431,7 +431,7 @@ def _rollout_html(rollouts, dirty, current, gt, acc_before, agent_type,
     <div class="ro-prog-meta">
       <span class="ro-prog-label">Step {done_steps}/{total_steps}</span>
       <span class="ro-prog-agent">{_e(_agent_label(agent_type))}</span>
-      <span class="ro-prog-state">{'Runningâ€¦' if pending_step else 'Complete'}</span>
+      <span class="ro-prog-state">{'Running…' if pending_step else 'Complete'}</span>
     </div>
     <div class="ro-track"><span class="ro-fill" style="width:{pct:.1f}%"></span></div>
   </div>
@@ -504,8 +504,8 @@ def _benchmark_html() -> str:
 
     lr  = training.get("latest_reward")
     ia  = training.get("invalid_action_rate")
-    lr_txt = f"{lr:+.2f}" if lr is not None else "â€”"
-    ia_txt = f"{ia:.1f}%" if ia is not None else "â€”"
+    lr_txt = f"{lr:+.2f}" if lr is not None else "—"
+    ia_txt = f"{ia:.1f}%" if ia is not None else "—"
 
     return f"""
 <div class="bm-root">
@@ -521,10 +521,10 @@ def _benchmark_html() -> str:
 
 def _arch_html() -> str:
     items = [
-        ("â†—", "Observe",  "Schema, suspect rows, and recent actions â†’ structured prompt."),
-        ("âš¡", "Act",      "One constrained JSON repair action per step."),
-        ("â—ˆ",  "Score",   "Accuracy delta Â· tool logic Â· efficiency Â· anti-shortcut."),
-        ("â†‘",  "Escalate","Simple nulls â†’ cluster â†’ relational failures."),
+        ("↗", "Observe",  "Schema, suspect rows, and recent actions → structured prompt."),
+        ("⚡", "Act",      "One constrained JSON repair action per step."),
+        ("◈",  "Score",   "Accuracy delta · tool logic · efficiency · anti-shortcut."),
+        ("↑",  "Escalate","Simple nulls → cluster → relational failures."),
     ]
     cards = "".join(f"""
 <div class="arch-c">
@@ -538,7 +538,7 @@ def _arch_html() -> str:
 def _mode_banner() -> str:
     ckpt = local_model_available()
     col  = "#00ff88" if ckpt else "rgba(255,255,255,0.3)"
-    msg  = "GRPO checkpoint detected â€” live inference enabled." if ckpt else "No local checkpoint. Baseline + heuristic paths active."
+    msg  = "GRPO checkpoint detected — live inference enabled." if ckpt else "No local checkpoint. Baseline + heuristic paths active."
     return f"""
 <div class="mode-b" style="border-color:{'rgba(0,255,136,0.2)' if ckpt else 'rgba(255,255,255,0.07)'}">
   <span class="mode-dot" style="background:{col};{'animation:pulse 2s infinite' if ckpt else ''}"></span>
@@ -549,7 +549,7 @@ def _mode_banner() -> str:
 def _get_training_summary():
     df = get_training_data()
     s  = {"parse_success":None,"parse_first":None,"parse_last":None,
-          "invalid_action_rate":None,"tiers":"â€”","latest_reward":None,"best_reward":None}
+          "invalid_action_rate":None,"tiers":"—","latest_reward":None,"best_reward":None}
     if df.empty: return s
     if "parse_success_rate" in df:
         v = pd.to_numeric(df["parse_success_rate"], errors="coerce").dropna()
@@ -562,7 +562,7 @@ def _get_training_summary():
         if len(v): s["invalid_action_rate"] = float(v.iloc[-1]*100)
     if "difficulty" in df:
         t = sorted(pd.to_numeric(df["difficulty"], errors="coerce").dropna().astype(int).unique())
-        if t: s["tiers"] = f"{t[0]}â€“{t[-1]}" if len(t)>1 else str(t[0])
+        if t: s["tiers"] = f"{t[0]}–{t[-1]}" if len(t)>1 else str(t[0])
     if "total_reward" in df:
         v = pd.to_numeric(df["total_reward"], errors="coerce").dropna()
         if len(v):
@@ -571,9 +571,9 @@ def _get_training_summary():
     return s
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════════════════════════════
 #  AGENT LOGIC
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════════════════════════════
 
 def heuristic_surgeon(state, gt):
     cols = [c for c in state.columns if c != "_is_deleted"]
@@ -584,7 +584,7 @@ def heuristic_surgeon(state, gt):
             if pd.isna(cell) and pd.notna(gtcel):
                 t = HEALTHCARE_SCHEMA.get(col,{}).get("type","str")
                 tid = 0 if t in ("int","float") else 1
-                return SurgeonAction(reasoning=f"Null in '{col}' â†’ {'IMPUTE_MEDIAN' if tid==0 else 'IMPUTE_MODE'}",
+                return SurgeonAction(reasoning=f"Null in '{col}' → {'IMPUTE_MEDIAN' if tid==0 else 'IMPUTE_MODE'}",
                                      tool_id=tid, column=ci, row_id=ri)
             if pd.notna(cell) and pd.notna(gtcel) and str(cell) != str(gtcel):
                 if str(cell).startswith("ERR_"):
@@ -593,7 +593,7 @@ def heuristic_surgeon(state, gt):
                     return SurgeonAction(reasoning=f"Type error in '{col}'", tool_id=tid, column=ci, row_id=ri)
                 return SurgeonAction(reasoning=f"Format error in '{col}'", tool_id=3, column=ci, row_id=ri)
     if len(state) > len(gt):
-        return SurgeonAction(reasoning="Duplicate row â†’ DELETE_ROW", tool_id=4, column=0, row_id=len(state)-1)
+        return SurgeonAction(reasoning="Duplicate row → DELETE_ROW", tool_id=4, column=0, row_id=len(state)-1)
     return SurgeonAction(reasoning="No errors detected", tool_id=7, column=0, row_id=0)
 
 
@@ -636,16 +636,16 @@ def simulate_agent(agent_type, session_state):
                                         agent_type, MAX, step_idx+1)
         yield ro, acc_d, diff, session_state
 
-        # â”€â”€ Pick action
+        # ── Pick action
         if agent_type == "Naive Baseline":
             tr = tc = None; tid = 7; rsn = "No errors."
             for ri in range(len(env._state)):
                 for ci, col in enumerate(cols):
                     cell = env._state.at[ri, col]
                     if pd.isna(cell):
-                        tr,tc,tid,rsn = ri,ci,0,"Null â†’ IMPUTE_MEDIAN"; break
+                        tr,tc,tid,rsn = ri,ci,0,"Null → IMPUTE_MEDIAN"; break
                     if str(cell).startswith("ERR_"):
-                        tr,tc,tid,rsn = ri,ci,0,"Type error â†’ IMPUTE_MEDIAN"; break
+                        tr,tc,tid,rsn = ri,ci,0,"Type error → IMPUTE_MEDIAN"; break
                 if tr is not None: break
             action = SurgeonAction(reasoning=rsn, tool_id=tid,
                                    column=tc if tc is not None else 0,
@@ -692,25 +692,25 @@ def simulate_agent(agent_type, session_state):
         if done: break
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  CSS â€” MISSION CONTROL
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════════════════════════════
+#  CSS — MISSION CONTROL
+# ══════════════════════════════════════════════════════════════════════════════
 
 CSS = """
 :root {
-  --bg: #0a0a0a;
-  --panel: #111111;
+  --bg: #050505;
+  --panel: #0f0f0f;
   --border: rgba(255,255,255,0.08);
   --t1: #ffffff;
   --t2: #a0a0a0;
-  --t3: #666666;
+  --t3: #555555;
   --g: #10b981;
   --r: #ef4444;
   --a: #f59e0b;
   --bl: #3b82f6;
-  --body: "Inter", sans-serif;
+  --body: "Inter", -apple-system, sans-serif;
   --mono: "DM Mono", monospace;
-  --radius: 8px;
+  --radius: 12px;
 }
 body {
   background-color: var(--bg) !important;
@@ -719,288 +719,222 @@ body {
   margin: 0;
   padding: 0;
 }
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 /* Base Gradio Overrides */
 .gradio-container {
   background-color: var(--bg) !important;
   max-width: 1400px !important;
+  border: none !important;
 }
+
+/* Sidebar and Main */
 .sidebar {
   background-color: var(--bg);
-  padding-right: 24px;
+  padding: 16px 24px;
 }
 .main-content {
   background-color: var(--bg);
-  padding-left: 24px;
+  padding: 16px 24px;
 }
 
 /* Card/Panel Styling */
-.gradio-html, .gradio-dataframe, .gradio-accordion {
+.gradio-html, .gradio-dataframe, .gradio-accordion, .gradio-plot {
   background-color: var(--panel) !important;
-  box-shadow: 0 0 0 1px var(--border) !important;
+  box-shadow: 0 0 0 1px var(--border), 0 4px 20px rgba(0,0,0,0.4) !important;
   border: none !important;
   border-radius: var(--radius) !important;
   margin-bottom: 16px !important;
-}
-.gradio-accordion > label {
-  background-color: var(--panel) !important;
-  color: var(--t1) !important;
-  font-weight: 500 !important;
-  font-family: var(--body) !important;
-  padding: 16px 24px !important;
-  border-bottom: 1px solid var(--border) !important;
-}
-.gradio-accordion .label-wrap {
-  border: none !important;
+  overflow: hidden !important;
 }
 
-/* Dataframe */
-.table-wrap {
-  border: none !important;
-  background: transparent !important;
+/* Typography Overrides */
+.gradio-html * {
+  font-family: var(--body);
 }
-.dt {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: var(--mono);
-  font-size: 11px;
-}
-.dt th {
-  padding: 10px 16px;
-  background: rgba(255,255,255,0.02);
-  color: var(--t3);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-}
-.dt td {
-  padding: 10px 16px;
-  color: var(--t2);
-  border-bottom: 1px solid rgba(255,255,255,0.02);
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Primary Button (Claude style) */
-button.primary {
-  background: var(--t1) !important;
-  color: var(--bg) !important;
-  border: none !important;
-  border-radius: var(--radius) !important;
-  padding: 12px 24px !important;
-  font-weight: 600 !important;
-  font-family: var(--body) !important;
-  font-size: 14px !important;
-  transition: all 0.2s ease !important;
-  box-shadow: 0 2px 10px rgba(255,255,255,0.1) !important;
-  width: 100% !important;
-  display: block !important;
-}
-button.primary:hover {
-  background: #e0e0e0 !important;
-  transform: translateY(-1px) !important;
-  box-shadow: 0 4px 15px rgba(255,255,255,0.15) !important;
-}
-
-/* Radio Buttons (Cards) */
-.gradio-radio label {
-  background: var(--panel) !important;
-  box-shadow: 0 0 0 1px var(--border) !important;
-  border-radius: var(--radius) !important;
-  padding: 16px !important;
-  margin-bottom: 8px !important;
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: flex-start !important;
-  cursor: pointer !important;
-  transition: all 0.2s ease !important;
-  border: none !important;
-}
-.gradio-radio label.selected {
-  box-shadow: 0 0 0 1px var(--border), inset 4px 0 0 var(--g) !important;
-  background: rgba(16,185,129,0.03) !important;
-}
-.gradio-radio input[type="radio"] {
-  display: none !important;
-}
-.gradio-radio span.ml-2 {
-  font-family: var(--body) !important;
-  font-weight: 500 !important;
-  color: var(--t1) !important;
-  font-size: 14px !important;
-  margin: 0 !important;
-}
-
-/* Topbar & Layout Fixes */
 .pane-label {
   font-family: var(--body);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--t3);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   margin-bottom: 12px;
 }
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 24px;
-  background: var(--panel);
-  box-shadow: 0 0 0 1px var(--border);
-  border-radius: var(--radius);
-  margin-bottom: 24px;
+
+/* Custom Radio Cards */
+.custom-radio {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
 }
-.tb-title {
-  font-family: var(--body);
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--t1);
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.custom-radio .wrap {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
-.tb-stats {
-  display: flex;
-  gap: 16px;
+.custom-radio label {
+  background: var(--panel) !important;
+  box-shadow: 0 0 0 1px var(--border) !important;
+  border-radius: var(--radius) !important;
+  padding: 16px 20px !important;
+  display: flex !important;
+  align-items: center !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  margin: 0 !important;
 }
-.tbs-item {
-  display: flex;
-  flex-direction: column;
+.custom-radio label:hover {
+  background: #151515 !important;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.15) !important;
 }
-.tbs-lbl {
-  font-size: 10px;
-  color: var(--t3);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.custom-radio label.selected {
+  box-shadow: 0 0 0 1px var(--border), inset 4px 0 0 var(--g) !important;
+  background: rgba(16,185,129,0.03) !important;
 }
-.tbs-val {
-  font-family: var(--mono);
-  font-size: 13px;
-  color: var(--t1);
+.custom-radio input[type="radio"] { display: none !important; }
+.custom-radio .ml-2 {
+  font-family: var(--body) !important;
+  font-weight: 500 !important;
+  color: var(--t1) !important;
+  font-size: 13px !important;
+  margin: 0 !important;
+  width: 100%;
 }
 
-/* Streaming Rollout */
-.ro-traj {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px 24px;
+/* Primary Button (Claude style) */
+button.primary {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 14px 24px !important;
+  font-weight: 600 !important;
+  font-family: var(--body) !important;
+  font-size: 14px !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 4px 15px rgba(255,255,255,0.1) !important;
+  width: 100% !important;
 }
+button.primary:hover {
+  background: #e0e0e0 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 6px 20px rgba(255,255,255,0.15) !important;
+}
+
+/* Accordion */
+.gradio-accordion > label {
+  background-color: var(--panel) !important;
+  color: var(--t1) !important;
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  padding: 16px 24px !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+/* Dataframe */
+.table-wrap { background: transparent !important; border: none !important; }
+.dt { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+.dt th { padding: 10px 16px; background: rgba(255,255,255,0.02); color: var(--t3); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); text-align: left; }
+.dt td { padding: 10px 16px; color: var(--t2); border-bottom: 1px solid rgba(255,255,255,0.02); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Topbar & Header */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 24px; background: var(--panel);
+  box-shadow: 0 0 0 1px var(--border); border-radius: var(--radius);
+  margin-bottom: 24px;
+}
+.tb-title { font-size: 18px; font-weight: 600; color: var(--t1); display: flex; align-items: center; gap: 10px; }
+.tb-stats { display: flex; gap: 24px; }
+.tbs-item { display: flex; flex-direction: column; gap: 4px; }
+.tbs-lbl { font-size: 10px; color: var(--t3); text-transform: uppercase; letter-spacing: 0.05em; }
+.tbs-val { font-family: var(--mono); font-size: 14px; color: var(--t1); }
+
+/* Status Strip */
+.status-strip {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 24px; background: var(--panel);
+  box-shadow: 0 0 0 1px var(--border); border-radius: var(--radius);
+  font-family: var(--mono); font-size: 12px; color: var(--t2);
+  margin-bottom: 16px;
+}
+.status-strip span b { color: var(--t1); font-weight: 500; }
+
+/* Streaming Rollout */
+.ro-traj { display: flex; flex-direction: column; gap: 8px; padding: 16px 24px; }
 .tr-row {
-  display: grid;
-  grid-template-columns: 40px 1fr auto auto 60px;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
-  background: rgba(255,255,255,0.02);
-  border-radius: var(--radius);
-  border-left: 2px solid transparent;
+  display: grid; grid-template-columns: 40px 1fr auto auto 60px;
+  align-items: center; gap: 16px; padding: 12px 16px;
+  background: rgba(255,255,255,0.02); border-radius: var(--radius); border-left: 2px solid transparent;
 }
 .tr-win  { border-left-color: var(--g); background: rgba(16,185,129,0.05); }
 .tr-loss { border-left-color: var(--r); background: rgba(239,68,68,0.05); }
 .tr-n    { font-family: var(--mono); font-size: 11px; color: var(--t3); }
-.tr-rsn  { font-family: var(--body); font-size: 13px; color: var(--t2); font-style: italic; }
+.tr-rsn  { font-family: var(--body); font-size: 13px; color: var(--t1); font-style: italic; line-height: 1.4; }
 .tr-tool { font-family: var(--mono); font-size: 11px; color: var(--t1); background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 4px; }
 .tr-loc  { font-family: var(--mono); font-size: 11px; color: var(--t3); }
 .tr-rew  { font-family: var(--mono); font-size: 13px; font-weight: 500; text-align: right; }
 .tr-rew-pos { color: var(--g); }
 .tr-rew-neg { color: var(--r); }
-.rot-empty  { padding: 24px; text-align: center; color: var(--t3); font-size: 13px; font-family: var(--body); font-style: italic; }
-
-/* Status Strip */
-.status-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 24px;
-  background: var(--panel);
-  box-shadow: 0 0 0 1px var(--border);
-  border-radius: var(--radius);
-  margin-bottom: 16px;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--t2);
-}
-.status-strip span b { color: var(--t1); font-weight: 500; }
+.rot-empty  { padding: 24px; text-align: center; color: var(--t3); font-size: 13px; font-style: italic; }
 
 /* Benchmark & Rings */
-.bm-root {
-  padding: 24px;
-}
-.bm-meta {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  font-family: var(--body);
-  font-size: 13px;
-}
-.bm-track {
-  height: 4px;
-  background: rgba(255,255,255,0.1);
-  border-radius: 2px;
-  margin-bottom: 16px;
-}
-.bm-bar {
-  height: 100%;
-  border-radius: 2px;
-  background: var(--g);
-}
+.bm-root { padding: 24px; }
+.bm-lane { margin-bottom: 16px; }
+.bm-meta { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; }
+.bm-track { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; }
+.bm-bar { height: 100%; border-radius: 2px; background: var(--g); }
 
 .diff-root { display: flex; flex-direction: column; gap: 16px; padding: 24px; }
-.dsr-item { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.diff-stats-row { display: flex; gap: 16px; }
+.dsr-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; background: rgba(255,255,255,0.02); padding: 16px; border-radius: 8px; }
 .dsr-val { font-family: var(--mono); font-size: 24px; color: var(--t1); font-weight: 500; }
-.dsr-label { font-family: var(--body); font-size: 10px; color: var(--t3); text-transform: uppercase; letter-spacing: 0.05em; }
+.dsr-label { font-size: 10px; color: var(--t3); text-transform: uppercase; letter-spacing: 0.05em; }
 
 /* API Section */
-.api-block {
-  background: #000;
-  padding: 16px;
-  border-radius: var(--radius);
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--t2);
-  margin-top: 12px;
-  overflow-x: auto;
-}
-.api-block code {
-  color: var(--g);
-}
-.api-desc {
-  font-family: var(--body);
-  font-size: 13px;
-  color: var(--t2);
-  margin-bottom: 8px;
-}
+.api-block { background: #000; padding: 16px; border-radius: var(--radius); font-family: var(--mono); font-size: 12px; color: var(--t2); margin-top: 12px; overflow-x: auto; box-shadow: inset 0 0 0 1px var(--border); }
+.api-block code { color: var(--g); }
+.api-desc { font-size: 13px; color: var(--t2); margin-bottom: 8px; }
+
+/* Legacy Fallbacks to keep old elements from breaking */
+.err-banner { padding:20px; background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.2); border-radius:var(--radius); font-family:var(--mono); font-size:11px; color:var(--r); }
+.empty-center { padding:40px 20px; text-align:center; color:var(--t3); }
+.ro-dna { padding:16px; }
+.dna-head { font-family:var(--mono); font-size:10px; color:var(--t3); text-transform:uppercase; margin-bottom:12px; }
+.dna-r { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+.dna-lbl { width:100px; font-family:var(--mono); font-size:11px; color:var(--t2); }
+.dna-track { flex:1; height:4px; background:rgba(255,255,255,0.1); border-radius:2px; }
+.dna-fill { height:100%; border-radius:2px; background:var(--g); }
+.df-n { background:var(--r); }
+.dna-v { width:40px; text-align:right; font-family:var(--mono); font-size:11px; }
+
 """
 
 def _api_section_html():
     return """
-    <div style="padding: 24px;">
+    <div style="padding: 12px 24px 24px 24px;">
         <div class="api-desc">DataForge Arena provides a full OpenEnv REST API for programmatic evaluation.</div>
         
-        <div class="api-desc" style="margin-top: 20px;"><b>Reset environment (cURL)</b></div>
+        <div class="api-desc" style="margin-top: 24px;"><b>Reset environment (cURL)</b></div>
         <div class="api-block">
 <pre>curl -X POST https://vivek567-dataforge-arena.hf.space/reset \
   -H "Content-Type: application/json" \
   -d '{"tier": 1}'</pre>
         </div>
         
-        <div class="api-desc" style="margin-top: 20px;"><b>Execute one repair step (cURL)</b></div>
+        <div class="api-desc" style="margin-top: 24px;"><b>Execute one repair step (cURL)</b></div>
         <div class="api-block">
 <pre>curl -X POST https://vivek567-dataforge-arena.hf.space/step \
   -H "Content-Type: application/json" \
   -d '{"reasoning": "age 145 exceeds schema max 120", "tool_id": 3, "column": 2, "row_id": 7}'</pre>
         </div>
 
-        <div class="api-desc" style="margin-top: 20px;"><b>Python Requests Example</b></div>
+        <div class="api-desc" style="margin-top: 24px;"><b>Python Requests Example</b></div>
         <div class="api-block">
 <pre>import requests
 
@@ -1014,6 +948,7 @@ for step in range(5):
         </div>
     </div>
     """
+
 def build_demo():
     choices = available_agent_choices()
     default = "Live GRPO Model · Trained on 265 RL steps [GRPO]" if "Live GRPO Model" in choices else "Heuristic Surgeon · Rule-based constraint-aware repairs [DETERMINISTIC]"
@@ -1033,7 +968,7 @@ def build_demo():
         "Tier 3 · Full relational reasoning",
     ]
 
-    with gr.Blocks(title="DataForge Arena") as demo:
+    with gr.Blocks(title="DataForge Arena", css=CSS, theme=gr.themes.Base()) as demo:
         state = gr.State(_new_state())
         
         # Header bar (keep existing _topbar_html() logic)
@@ -1041,45 +976,47 @@ def build_demo():
         
         with gr.Row(equal_height=False):
             # LEFT SIDEBAR
-            with gr.Column(scale=1, min_width=300, elem_classes=["sidebar"]):
-                gr.HTML("<div class='pane-label'>Agent</div>")
-                agent_pick = gr.Radio(choices=agent_choices, value=default, label="", interactive=True)
+            with gr.Column(scale=1, min_width=320, elem_classes=["sidebar"]):
+                gr.HTML("<div class='pane-label'>Agent Selection</div>")
+                agent_pick = gr.Radio(choices=agent_choices, value=default, label="", interactive=True, elem_classes=["custom-radio"])
                 
-                gr.HTML("<div class='pane-label' style='margin-top:24px;'>Complexity</div>")
-                tier_pick = gr.Radio(choices=tier_choices, value="Tier 1 · Nulls, type errors, range violations", label="", interactive=True)
+                gr.HTML("<div class='pane-label' style='margin-top:32px;'>Scenario Complexity</div>")
+                tier_pick = gr.Radio(choices=tier_choices, value="Tier 1 · Nulls, type errors, range violations", label="", interactive=True, elem_classes=["custom-radio"])
                 
-                gen_btn = gr.Button("New Scenario", variant="primary", elem_classes=["primary"])
+                gen_btn = gr.Button("Create New Scenario", variant="primary", elem_classes=["primary"])
                 
-                gr.HTML("<div class='pane-label' style='margin-top:32px;'>Benchmark Performance</div>")
+                gr.HTML("<div class='pane-label' style='margin-top:40px;'>Benchmark Performance</div>")
                 bench_html = gr.HTML(_benchmark_html())
                 
-                gr.HTML("<div class='pane-label' style='margin-top:24px;'>Training Curve · 265 steps</div>")
-                reward_spark = gr.LinePlot(x="step", y="total_reward", height=100, x_title="Step", y_title="Reward", tooltip=["step", "total_reward"])
+                gr.HTML("<div class='pane-label' style='margin-top:32px;'>Training Convergence · 265 steps</div>")
+                reward_spark = gr.LinePlot(x="step", y="total_reward", height=150, x_title="Step", y_title="Reward", tooltip=["step", "total_reward"])
             
             # MAIN CONTENT
             with gr.Column(scale=3, elem_classes=["main-content"]):
                 # Status strip
-                status_strip = gr.HTML("<div class='status-strip'><span>Tier: <b>1</b></span><span>Status: <b>Waiting</b></span><span>Accuracy: <b>--</b></span></div>")
+                status_strip = gr.HTML("<div class='status-strip'><span>Tier: <b>1</b></span><span>Status: <b>Waiting</b></span><span>Target Rows: <b>--</b></span></div>")
                 
                 # Data view (collapsible)
-                with gr.Accordion("Corrupted Data", open=True):
+                with gr.Accordion("Live Corrupted Dataset", open=True):
                     dirty_view = gr.Dataframe(label="", interactive=False, wrap=False)
                 
                 # Execute button
-                exec_btn = gr.Button("▶ Execute Agent", variant="primary", size="lg", elem_classes=["primary"])
+                exec_btn = gr.Button("▶ Execute Repair Policy", variant="primary", size="lg", elem_classes=["primary"])
                 
                 # Streaming output
                 rollout_out = gr.HTML(_empty_rollout())
                 
                 # Results row
                 with gr.Row():
-                    acc_display = gr.HTML(_accuracy_display(None, None))
-                    repaired_view = gr.Dataframe(label="", interactive=False, wrap=False)
+                    with gr.Column(scale=1):
+                        acc_display = gr.HTML(_accuracy_display(None, None))
+                    with gr.Column(scale=2):
+                        repaired_view = gr.Dataframe(label="", interactive=False, wrap=False)
                 
                 diff_out = gr.HTML(_diff_html(None, None, None))
         
         # API section at bottom
-        with gr.Accordion("Use via API", open=False):
+        with gr.Accordion("Developer API", open=False):
             gr.HTML(_api_section_html())
         
         # --- Logic Wiring ---
@@ -1098,17 +1035,13 @@ def build_demo():
             s_out["dirty"] = dirty
             s_out["gt"]    = gt
             
-            stats = f"<div class='status-strip'><span>Tier: <b>{tier}</b></span><span>Rows: <b>{len(dirty)}</b></span><span>Initial Acc: <b>{acc:.1%}</b></span></div>"
+            stats = f"<div class='status-strip'><span>Tier: <b>{tier}</b></span><span>Rows: <b>{len(dirty)}</b></span><span>Initial Acc: <b>{acc*100:.1f}%</b></span></div>"
             return dirty.head(8), stats, s_out, _empty_rollout(), _accuracy_display(acc, acc), dirty.head(8), _diff_html(dirty, dirty, gt)
 
         gen_outs = [dirty_view, status_strip, state, rollout_out, acc_display, repaired_view, diff_out]
-        
         gen_btn.click(fn=on_gen, inputs=[tier_pick, state], outputs=gen_outs)
 
-        # After execution update repaired view — we need to also return repaired_view
-        # Wrap simulate_agent to yield repaired data too
         def simulate_with_repaired(agent_val, session_state):
-            # Parse agent type from the long choice string
             if "Naive Baseline" in agent_val: agent_type = "Naive Baseline"
             elif "Heuristic Surgeon" in agent_val: agent_type = "Heuristic Surgeon"
             else: agent_type = "Live GRPO Model"
@@ -1139,8 +1072,8 @@ def build_demo():
                     for ri in range(len(env._state)):
                         for ci, col in enumerate(cols):
                             cell = env._state.at[ri, col]
-                            if pd.isna(cell):     tr,tc,tid,rsn=ri,ci,0,"Null→IMPUTE_MEDIAN"; break
-                            if str(cell).startswith("ERR_"): tr,tc,tid,rsn=ri,ci,0,"ERR→IMPUTE_MEDIAN"; break
+                            if pd.isna(cell):     tr,tc,tid,rsn=ri,ci,0,"Null->IMPUTE_MEDIAN"; break
+                            if str(cell).startswith("ERR_"): tr,tc,tid,rsn=ri,ci,0,"ERR->IMPUTE_MEDIAN"; break
                         if tr is not None: break
                     action = SurgeonAction(reasoning=rsn,tool_id=tid,
                                            column=tc if tc is not None else 0,
@@ -1191,8 +1124,6 @@ def build_demo():
         demo.load(fn=load_dash, outputs=[topbar, bench_html, reward_spark])
 
     return demo
-demo = build_demo()
-
 if __name__ == "__main__":
     server_name = os.getenv("GRADIO_SERVER_NAME", "0.0.0.0")
     server_port = int(os.getenv("PORT", os.getenv("GRADIO_SERVER_PORT", "7860")))
