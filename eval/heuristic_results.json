@@ -33,6 +33,7 @@
   ],
   "destruction_ratio": 0.0147,
   "improvement_vs_random_pct": -98.53,
+  "improvement_vs_random_pct_note": "Negative because heuristic advantage (+0.009) is small relative to random destruction magnitude (-0.009). Heuristic is LESS destructive (destruction_ratio=0.0147 vs random 0.009325 avg delta). Do not read as 'worse than random'.",
   "agent_type": "learning",
   "note": "Heuristic surgeon results. No trained GRPO checkpoint was used.",
   "schema_breakdown": {

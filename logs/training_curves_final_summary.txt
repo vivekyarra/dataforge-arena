@@ -1,13 +1,13 @@
-=== Training Summary (v1.0 run - T4, 300 steps) ===
-Rows logged:       60
-Final step:        295
-First reward:     +1.925
-Final reward:     +4.475
-Best reward:      +6.950
-Improvement:      +132% (total reward; driven by parse shaping)
-Parse rate:        100.0% sustained
-constraint_alignment: 0.0 (tool collapse to CORRECT_FORMAT on null cells)
-schema_alignment:     0.0 (same root cause)
-Known issue:       Fixed in v1.1 - see reward.py patch notes
+
+=== Training Summary ===
+Rows logged:    60
+Final step:     295
+First reward:  +1.925
+Final reward:  +4.475
+Best reward:   +6.950
+Improvement:   +132%
+Parse rate:    100.0% -> 100.0%
+Constraint:    +0.0000 -> +0.0000
+Shaped total:  +0.7506 -> +4.4500
 ========================
-HEADLINE: Parse 100% sustained; constraint signals blocked by tool collapse (fixed v1.1)
+HEADLINE: Reward +1.93 -> +4.47; parse 100% -> 100%

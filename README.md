@@ -180,6 +180,7 @@ The API server lives in [environment/server.py](/D:/dataforge-arena/environment/
 ```bash
 git clone https://github.com/vivekyarra/dataforge-arena.git
 cd dataforge-arena
+git lfs install && git lfs pull   # required to download training curve plots
 pip install -r requirements.txt
 python -m pytest tests/ -x -q
 python environment/server.py

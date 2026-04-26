@@ -14,7 +14,7 @@ authors:
 repository-code: "https://github.com/vivekyarra/dataforge-arena"
 url: "https://github.com/vivekyarra/dataforge-arena"
 license: MIT
-version: "1.1.0"
+version: "1.2.0"
 date-released: "2026-04-26"
 keywords:
   - reinforcement-learning

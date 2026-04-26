@@ -114,17 +114,57 @@ def plot_curves(log_path: str, output_path: str):
     axes[1].set_ylabel("Reward Component", color="#94a3b8")
     axes[1].axhline(y=0, color="#374151", linestyle="--", alpha=0.5)
 
-    axes[2].hist(total_reward, bins=20, color="#00ff88", alpha=0.7, edgecolor="none")
-    axes[2].axvline(
-        total_reward.mean(),
-        color="white",
-        linestyle="--",
-        linewidth=1,
-        label=f"mean={total_reward.mean():.2f}",
-    )
-    axes[2].set_title("Reward Distribution", color="#e2e8f0", fontsize=14)
-    axes[2].set_xlabel("Total Reward", color="#94a3b8")
-    axes[2].legend(fontsize=8)
+    # Constraint alignment trend on a secondary axis (honest zero-signal handling).
+    ax2 = axes[0].twinx()
+    ax2.tick_params(colors="#f59e0b")
+    ax2.spines["right"].set_color("#f59e0b")
+    constraint_raw = pd.to_numeric(df.get("constraint_alignment", pd.Series([0.0] * len(df))), errors="coerce").fillna(0.0)
+    if (constraint_raw == 0.0).all():
+        ax2.axhspan(-0.05, 0.05, alpha=0.15, color='orange',
+                    label='constraint_alignment (0 — tool collapse v1.0, fixed v1.1)')
+        ax2.set_ylim(-1.1, 1.1)
+        ax2.legend(loc='upper left', fontsize=8)
+        # Add text annotation
+        ax2.text(270, 0.3,
+                 'Fixed in v1.1\n(see reward.py)',
+                 color='orange', fontsize=8, style='italic')
+        handles, labels = ax2.get_legend_handles_labels()
+        labels = [
+            "constraint_alignment: 0 throughout (tool collapse fixed in v1.1)"
+            if label == "constraint_alignment (0 — tool collapse v1.0, fixed v1.1)"
+            else label
+            for label in labels
+        ]
+        ax2.legend(handles, labels, loc="upper left", fontsize=8)
+    else:
+        constraint_ma = constraint_raw.rolling(window=10, min_periods=1).mean()
+        ax2.plot(
+            steps,
+            constraint_ma,
+            color="orange",
+            linestyle="--",
+            linewidth=1.8,
+            label="constraint_alignment (10-step avg)",
+        )
+        ax2.set_ylabel("Constraint Alignment (rolling)", color="#f59e0b")
+        ax2.legend(loc="upper left", fontsize=8)
+
+    ax3 = axes[2]
+    # Tool usage distribution
+    tool_names = {0:'IMPUTE_MED', 1:'IMPUTE_MODE', 2:'FWD_FILL',
+                  3:'CORRECT_FMT', 4:'DELETE_ROW', 5:'MERGE_DUP',
+                  6:'FLAG_UNC', 7:'NO_OP'}
+    if 'dominant_tool' in df.columns:
+        tool_counts = df['dominant_tool'].value_counts().sort_index()
+        ax3.bar([tool_names.get(int(i), str(i)) for i in tool_counts.index],
+                tool_counts.values, color='steelblue')
+        ax3.set_title('Tool Usage Distribution')
+        ax3.set_xlabel('Tool')
+        ax3.set_ylabel('Steps as Dominant Tool')
+        ax3.tick_params(axis='x', rotation=45)
+    else:
+        ax3.set_title("Tool Usage Distribution", color="#e2e8f0", fontsize=14)
+        ax3.text(0.5, 0.5, "No dominant_tool column", ha="center", va="center", color="#94a3b8")
 
     axes[3].plot(steps, shaped_reward_total, color="#f472b6", linewidth=2.2)
     axes[3].fill_between(steps, shaped_reward_total, color="#f472b6", alpha=0.12)
