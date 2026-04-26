@@ -1138,7 +1138,7 @@ def build_demo():
     choices = available_agent_choices()
     default = "Live GRPO Model" if "Live GRPO Model" in choices else "Heuristic Surgeon"
 
-    with gr.Blocks(title="DataForge Arena", css=CSS, theme=gr.themes.Base()) as demo:
+    with gr.Blocks(title="DataForge Arena") as demo:
         state = gr.State(_new_state())
 
         # ── Top bar (auto-refreshed on load)
@@ -1152,7 +1152,7 @@ def build_demo():
                     btn1 = gr.Button("⬡ Tier 1", variant="secondary")
                     btn3 = gr.Button("⬡ Tier 3", variant="secondary")
                 scenario_stats = gr.HTML("")
-                dirty_view = gr.Dataframe(label="", interactive=False, wrap=False, max_rows=8)
+                dirty_view = gr.Dataframe(label="", interactive=False, wrap=False)
 
             # ── CENTER: Agent
             with gr.Column(scale=2, min_width=420):
@@ -1166,7 +1166,7 @@ def build_demo():
             with gr.Column(scale=1, min_width=280):
                 gr.HTML("<div class='pane-label'>03 · Output</div>")
                 acc_display  = gr.HTML(_accuracy_display(None, None))
-                repaired_view = gr.Dataframe(label="", interactive=False, wrap=False, max_rows=8)
+                repaired_view = gr.Dataframe(label="", interactive=False, wrap=False)
                 diff_out     = gr.HTML(_diff_html(None, None, None))
 
         # ── Bottom: Training + Benchmark
@@ -1302,4 +1302,9 @@ demo = build_demo()
 if __name__ == "__main__":
     server_name = os.getenv("GRADIO_SERVER_NAME", "0.0.0.0")
     server_port = int(os.getenv("PORT", os.getenv("GRADIO_SERVER_PORT", "7860")))
-    demo.queue(default_concurrency_limit=8).launch(server_name=server_name, server_port=server_port)
+    demo.queue(default_concurrency_limit=8).launch(
+        server_name=server_name, 
+        server_port=server_port,
+        css=CSS,
+        theme=gr.themes.Base()
+    )
