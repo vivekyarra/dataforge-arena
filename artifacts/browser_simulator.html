@@ -3,751 +3,1213 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DataForge Arena - Live Simulator</title>
-    <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <title>DataForge Arena — Live Simulator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
-            --bg-color: #050508;
-            --panel-bg: #0d0d14;
-            --border-color: #1a1a24;
-            --text-main: #e0e0e0;
-            --text-muted: #888;
-            
-            --cyan: #00d4ff;
-            --red: #ff3355;
-            --green: #00ff87;
-            --gold: #ffcc00;
-            
-            --font-header: 'Exo 2', sans-serif;
-            --font-data: 'JetBrains Mono', monospace;
+            --bg:        #030408;
+            --bg2:       #080b12;
+            --panel:     #0d101a;
+            --panel2:    #111520;
+            --border:    #1c2030;
+            --border2:   #242840;
+            --text:      #dde3f0;
+            --muted:     #5a647a;
+            --dim:       #2a3040;
+            --cyan:      #00c8f0;
+            --cyan2:     rgba(0,200,240,0.12);
+            --cyan3:     rgba(0,200,240,0.04);
+            --green:     #00e87a;
+            --green2:    rgba(0,232,122,0.12);
+            --red:       #ff3355;
+            --red2:      rgba(255,51,85,0.12);
+            --gold:      #ffc420;
+            --gold2:     rgba(255,196,32,0.12);
+            --font-h:    'Exo 2', sans-serif;
+            --font-m:    'JetBrains Mono', monospace;
         }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            font-family: var(--font-data);
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-m);
             overflow-x: hidden;
             line-height: 1.6;
         }
 
-        h1, h2, h3, h4 {
-            font-family: var(--font-header);
-            text-transform: uppercase;
-            letter-spacing: 1px;
+        /* ── Scanline overlay ── */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0,0,0,0.08) 2px,
+                rgba(0,0,0,0.08) 4px
+            );
+            pointer-events: none;
+            z-index: 999;
+            mix-blend-mode: multiply;
         }
 
-        /* Glitch Effect */
-        .glitch-wrapper {
-            position: relative;
-            display: inline-block;
+        /* ── Corner brackets ── */
+        .bracket {
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            opacity: 0.5;
         }
+        .bracket--tl { top: 8px; left: 8px; border-top: 1px solid var(--cyan); border-left: 1px solid var(--cyan); }
+        .bracket--tr { top: 8px; right: 8px; border-top: 1px solid var(--cyan); border-right: 1px solid var(--cyan); }
+        .bracket--bl { bottom: 8px; left: 8px; border-bottom: 1px solid var(--cyan); border-left: 1px solid var(--cyan); }
+        .bracket--br { bottom: 8px; right: 8px; border-bottom: 1px solid var(--cyan); border-right: 1px solid var(--cyan); }
+
+        /* ── Glitch title ── */
+        .glitch-wrap { position: relative; display: inline-block; }
 
         .glitch {
-            font-size: 3.5rem;
+            font-family: var(--font-h);
+            font-size: 4.5rem;
             font-weight: 900;
-            color: white;
-            text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+            color: #fff;
+            letter-spacing: -2px;
+            text-transform: uppercase;
             position: relative;
         }
 
         .glitch::before, .glitch::after {
             content: attr(data-text);
             position: absolute;
-            top: 0;
-            left: 0;
+            top: 0; left: 0;
             width: 100%;
             height: 100%;
-            background: var(--bg-color);
+            background: var(--bg);
         }
 
         .glitch::before {
             left: 2px;
             text-shadow: -2px 0 var(--red);
-            animation: glitch-anim-1 2s infinite linear alternate-reverse;
+            animation: glitch-1 3.5s infinite;
+            opacity: 0.7;
         }
 
         .glitch::after {
             left: -2px;
             text-shadow: 2px 0 var(--cyan);
-            animation: glitch-anim-2 3s infinite linear alternate-reverse;
+            animation: glitch-2 4.2s infinite;
+            opacity: 0.7;
         }
 
-        @keyframes glitch-anim-1 {
-            0% { clip-path: inset(20% 0 80% 0); }
-            20% { clip-path: inset(60% 0 10% 0); }
-            40% { clip-path: inset(40% 0 50% 0); }
-            60% { clip-path: inset(80% 0 5% 0); }
-            80% { clip-path: inset(10% 0 70% 0); }
-            100% { clip-path: inset(30% 0 20% 0); }
+        @keyframes glitch-1 {
+            0%, 85%, 100% { clip-path: none; opacity: 0; }
+            86% { clip-path: inset(20% 0 65% 0); opacity: 0.8; }
+            88% { clip-path: inset(55% 0 15% 0); opacity: 0.8; }
+            90% { clip-path: inset(35% 0 45% 0); opacity: 0.8; }
+            92% { clip-path: none; opacity: 0; }
         }
 
-        @keyframes glitch-anim-2 {
-            0% { clip-path: inset(10% 0 60% 0); }
-            20% { clip-path: inset(80% 0 5% 0); }
-            40% { clip-path: inset(30% 0 20% 0); }
-            60% { clip-path: inset(70% 0 10% 0); }
-            80% { clip-path: inset(20% 0 50% 0); }
-            100% { clip-path: inset(50% 0 30% 0); }
+        @keyframes glitch-2 {
+            0%, 78%, 100% { clip-path: none; opacity: 0; }
+            79% { clip-path: inset(70% 0 10% 0); opacity: 0.8; }
+            81% { clip-path: inset(15% 0 55% 0); opacity: 0.8; }
+            83% { clip-path: inset(45% 0 30% 0); opacity: 0.8; }
+            85% { clip-path: none; opacity: 0; }
         }
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
+        /* ── Container ── */
+        .container { max-width: 1440px; margin: 0 auto; padding: 2rem 2.5rem; }
 
-        /* Hero Section */
+        /* ── Hero ── */
         .hero {
             text-align: center;
-            padding: 4rem 0 2rem;
-            border-bottom: 1px solid var(--border-color);
+            padding: 5rem 2rem 3rem;
             position: relative;
         }
-        
-        .hero::after {
+
+        .hero-eyebrow {
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 1.5rem;
+        }
+
+        .hero-eyebrow span { color: var(--cyan); }
+
+        .hero-sub {
+            font-family: var(--font-m);
+            font-size: 1rem;
+            color: var(--muted);
+            max-width: 700px;
+            margin: 1.5rem auto 0;
+            line-height: 1.8;
+        }
+
+        .hero-sub strong { color: var(--text); }
+
+        .hero-divider {
+            width: 1px;
+            height: 60px;
+            background: linear-gradient(to bottom, transparent, var(--cyan), transparent);
+            margin: 2rem auto;
+            position: relative;
+        }
+
+        .hero-divider::after {
             content: '';
             position: absolute;
-            bottom: -1px;
+            top: 50%;
             left: 50%;
-            transform: translateX(-50%);
-            width: 200px;
+            transform: translate(-50%, -50%);
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--cyan);
+            box-shadow: 0 0 12px var(--cyan);
+        }
+
+        .headline-stat {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 28px;
+            border: 1px solid rgba(0,200,240,0.25);
+            border-radius: 4px;
+            background: var(--cyan2);
+            font-family: var(--font-h);
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--cyan);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.8s, transform 0.8s;
+        }
+
+        .headline-stat.visible { opacity: 1; transform: translateY(0); }
+
+        .headline-stat::before {
+            content: '▲';
+            font-size: 0.8rem;
+            color: var(--green);
+        }
+
+        /* ── Top metrics strip ── */
+        .metrics-strip {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1px;
+            background: var(--border);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+
+        .metric-strip-item {
+            background: var(--panel);
+            padding: 1rem 1.5rem;
+            text-align: center;
+            position: relative;
+        }
+
+        .metric-strip-item::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
             height: 2px;
             background: var(--cyan);
-            box-shadow: 0 0 15px var(--cyan);
-        }
-
-        .hero p {
-            font-size: 1.2rem;
-            color: var(--text-muted);
-            margin-top: 1rem;
-            max-width: 800px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .stat-highlight {
-            color: var(--gold);
-            font-weight: bold;
-            font-size: 1.5rem;
-            display: inline-block;
-            margin-top: 1rem;
             opacity: 0;
-            transform: translateY(20px);
-            transition: opacity 1s, transform 1s;
-        }
-        
-        .stat-highlight.visible {
-            opacity: 1;
-            transform: translateY(0);
-            text-shadow: 0 0 10px rgba(255, 204, 0, 0.4);
+            transition: opacity 0.3s;
         }
 
-        /* Layout Grid */
+        .metric-strip-item.active::before { opacity: 1; }
+
+        .metric-strip-item .val {
+            font-family: var(--font-h);
+            font-size: 1.8rem;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+
+        .metric-strip-item .lbl {
+            font-size: 0.65rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        /* ── Dashboard grid ── */
         .dashboard {
             display: grid;
-            grid-template-columns: 1fr 350px;
-            gap: 2rem;
-            margin-top: 2rem;
+            grid-template-columns: 1fr 340px;
+            gap: 1.5rem;
         }
 
+        /* ── Panel ── */
         .panel {
-            background: var(--panel-bg);
-            border: 1px solid var(--border-color);
+            background: var(--panel);
+            border: 1px solid var(--border);
             border-radius: 4px;
-            padding: 1.5rem;
             position: relative;
             overflow: hidden;
         }
 
-        .panel::before {
-            content: '';
+        .panel-inner { padding: 1.5rem; }
+
+        .panel-top-line {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--cyan), transparent);
-            opacity: 0.5;
+            top: 0; left: 0; right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 10%, var(--cyan) 50%, transparent 90%);
+            opacity: 0.4;
         }
 
         .panel-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1.5rem;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 0.5rem;
+            margin-bottom: 1.2rem;
+            padding-bottom: 0.8rem;
+            border-bottom: 1px solid var(--border);
         }
 
         .panel-title {
-            color: var(--cyan);
-            font-size: 1.2rem;
             display: flex;
             align-items: center;
             gap: 10px;
-        }
-        
-        .panel-title i {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            background: var(--cyan);
-            box-shadow: 0 0 8px var(--cyan);
-            border-radius: 50%;
+            font-family: var(--font-h);
+            font-size: 0.9rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--cyan);
         }
 
-        /* Table Simulator */
-        .table-container {
-            width: 100%;
-            overflow-x: auto;
-            position: relative;
+        .live-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--cyan);
+            box-shadow: 0 0 8px var(--cyan);
+            animation: live-pulse 1.8s ease infinite;
         }
+
+        @keyframes live-pulse {
+            0%, 100% { box-shadow: 0 0 4px var(--cyan); opacity: 1; }
+            50%       { box-shadow: 0 0 14px var(--cyan); opacity: 0.6; }
+        }
+
+        /* ── Controls ── */
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .tier-group {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .tier-label {
+            font-size: 0.65rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-right: 6px;
+        }
+
+        .tier-btn {
+            padding: 5px 11px;
+            border: 1px solid var(--border2);
+            background: transparent;
+            color: var(--muted);
+            font-family: var(--font-m);
+            font-size: 0.75rem;
+            cursor: pointer;
+            border-radius: 2px;
+            transition: all 0.18s;
+        }
+
+        .tier-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+        .tier-btn.t1.active { border-color: var(--green); color: var(--green); background: var(--green2); }
+        .tier-btn.t2.active { border-color: var(--gold);  color: var(--gold);  background: var(--gold2);  }
+        .tier-btn.t3.active { border-color: var(--red);   color: var(--red);   background: var(--red2);   }
+
+        .action-btn {
+            padding: 8px 18px;
+            border: 1px solid var(--border2);
+            background: transparent;
+            color: var(--text);
+            font-family: var(--font-h);
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            cursor: pointer;
+            border-radius: 2px;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .action-btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%; width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+            transition: left 0.4s;
+        }
+
+        .action-btn:hover::before { left: 100%; }
+        .action-btn:hover { border-color: var(--text); }
+
+        /* FIX: disabled state for buttons during run */
+        .action-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .action-btn.btn-corrupt { border-color: var(--red); color: var(--red); }
+        .action-btn.btn-corrupt:hover { background: var(--red2); }
+
+        .action-btn.btn-deploy { border-color: var(--cyan); color: var(--cyan); }
+        .action-btn.btn-deploy:hover { background: var(--cyan2); }
+        .action-btn.btn-deploy.running {
+            background: var(--cyan2);
+            box-shadow: 0 0 20px rgba(0,200,240,0.2);
+            animation: btn-pulse 1.2s ease infinite;
+        }
+
+        @keyframes btn-pulse {
+            0%, 100% { box-shadow: 0 0 10px rgba(0,200,240,0.2); }
+            50%       { box-shadow: 0 0 24px rgba(0,200,240,0.4); }
+        }
+
+        /* ── Table ── */
+        .table-wrap {
+            position: relative;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+        }
+
+        .scanner-beam {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 36px;
+            background: linear-gradient(180deg, transparent, rgba(0,200,240,0.06), rgba(0,200,240,0.06), transparent);
+            border-top: 1px solid rgba(0,200,240,0.25);
+            border-bottom: 1px solid rgba(0,200,240,0.25);
+            z-index: 5;
+            opacity: 0;
+            pointer-events: none;
+            transition: top 0.3s ease, opacity 0.2s;
+        }
+
+        .scanner-beam.active { opacity: 1; }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.9rem;
+            font-size: 0.82rem;
         }
 
-        th, td {
-            padding: 10px 15px;
-            text-align: left;
-            border-bottom: 1px solid #1a1a24;
-            position: relative;
-            transition: all 0.3s ease;
+        thead tr {
+            background: var(--panel2);
         }
 
         th {
-            color: var(--text-muted);
-            font-weight: normal;
-            background: rgba(0, 212, 255, 0.05);
+            padding: 10px 14px;
+            text-align: left;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            color: var(--muted);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
         }
 
-        .cell-corrupted {
-            color: var(--red);
-            background: rgba(255, 51, 85, 0.1);
-            animation: pulse-red 2s infinite;
-        }
-
-        .cell-repairing {
-            background: rgba(255, 204, 0, 0.2);
-            color: var(--gold);
-        }
-
-        .cell-repaired {
-            color: var(--green);
-            background: rgba(0, 255, 135, 0.1);
+        td {
+            padding: 9px 14px;
+            border-bottom: 1px solid rgba(28,32,48,0.5);
+            transition: all 0.25s ease;
             position: relative;
         }
 
-        .cell-repaired::after {
-            content: 'REPAIRED';
-            position: absolute;
-            top: -15px;
-            right: 0;
-            font-size: 0.6rem;
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,255,255,0.015); }
+
+        .row-index {
+            color: var(--muted);
+            font-size: 0.7rem;
+        }
+
+        .cell-ok     { color: var(--text); }
+        .cell-dirty  {
+            color: var(--red);
+            background: var(--red2);
+            animation: cell-pulse 1.8s ease infinite;
+        }
+
+        .cell-scanning {
+            color: var(--gold);
+            background: var(--gold2);
+        }
+
+        .cell-fixed {
             color: var(--green);
-            font-weight: bold;
-            text-shadow: 0 0 5px var(--green);
-            animation: fade-up 1s forwards;
-            pointer-events: none;
+            background: var(--green2);
         }
 
-        @keyframes pulse-red {
-            0% { text-shadow: 0 0 0px var(--red); box-shadow: inset 0 0 0px rgba(255,51,85,0); }
-            50% { text-shadow: 0 0 8px var(--red); box-shadow: inset 0 0 10px rgba(255,51,85,0.2); }
-            100% { text-shadow: 0 0 0px var(--red); box-shadow: inset 0 0 0px rgba(255,51,85,0); }
+        @keyframes cell-pulse {
+            0%, 100% { box-shadow: none; }
+            50%       { box-shadow: inset 0 0 12px rgba(255,51,85,0.3); }
         }
 
-        @keyframes fade-up {
-            0% { opacity: 1; transform: translateY(0); }
-            100% { opacity: 0; transform: translateY(-10px); }
-        }
-
-        /* Scanner Beam */
-        .scanner-beam {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 2px;
-            background: var(--cyan);
-            box-shadow: 0 0 20px 2px var(--cyan);
-            z-index: 10;
-            opacity: 0;
-            pointer-events: none;
-            transition: top 0.5s ease;
-        }
-
-        /* Controls */
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        button {
-            background: transparent;
-            color: var(--cyan);
-            border: 1px solid var(--cyan);
-            padding: 8px 16px;
-            font-family: var(--font-header);
-            font-size: 1rem;
-            cursor: pointer;
+        /* REPAIRED flash badge */
+        .badge-fixed {
+            display: inline-block;
+            font-size: 0.55rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            color: var(--green);
+            border: 1px solid var(--green);
             border-radius: 2px;
-            transition: all 0.2s;
-            text-transform: uppercase;
+            padding: 1px 5px;
+            margin-left: 6px;
+            animation: badge-fade 1.4s forwards;
+            vertical-align: middle;
         }
 
-        button:hover {
-            background: rgba(0, 212, 255, 0.1);
-            box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
-        }
-        
-        button.active {
-            background: var(--cyan);
-            color: var(--bg-color);
-            box-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
+        @keyframes badge-fade {
+            0%   { opacity: 1; transform: translateY(0); }
+            70%  { opacity: 1; }
+            100% { opacity: 0; transform: translateY(-6px); }
         }
 
-        .difficulty-selector {
-            display: flex;
-            gap: 5px;
-            align-items: center;
-        }
-
-        .difficulty-badge {
-            font-size: 0.8rem;
-            padding: 3px 8px;
-            border: 1px solid #333;
-            color: #666;
-            cursor: pointer;
-        }
-        
-        .difficulty-badge.active-tier-1 { border-color: var(--green); color: var(--green); }
-        .difficulty-badge.active-tier-2 { border-color: var(--gold); color: var(--gold); }
-        .difficulty-badge.active-tier-3 { border-color: var(--red); color: var(--red); box-shadow: 0 0 5px rgba(255,51,85,0.4); }
-
-        /* Metrics Sidebar */
-        .metric-card {
-            background: rgba(0,0,0,0.3);
-            border: 1px solid #222;
-            padding: 1rem;
-            margin-bottom: 1rem;
-            text-align: center;
-        }
-
-        .metric-value {
-            font-size: 2.5rem;
-            font-weight: bold;
-            font-family: var(--font-header);
-            margin: 10px 0;
-            transition: color 0.3s;
-        }
-
-        .metric-label {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-        }
-
-        .log-terminal {
-            background: #000;
-            border: 1px solid #222;
+        /* ── Reward chart ── */
+        .chart-wrap {
+            margin-top: 1.5rem;
+            /* FIX: explicit height so Chart.js can correctly compute canvas size */
             height: 200px;
+            position: relative;
+        }
+
+        /* FIX: canvas must fill the wrapper when maintainAspectRatio is false */
+        .chart-wrap canvas {
+            position: absolute;
+            top: 24px; left: 0;
+            width: 100% !important;
+            height: calc(100% - 24px) !important;
+        }
+
+        .chart-label {
+            position: absolute;
+            top: 0; left: 0;
+            font-size: 0.65rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        /* ── Sidebar ── */
+        .sidebar { display: flex; flex-direction: column; gap: 1rem; }
+
+        .big-metric {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 1.2rem 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .big-metric::before { content: ''; position: absolute; top:0; left:0; right:0; height:1px; background: linear-gradient(90deg, transparent, var(--cyan), transparent); opacity:0.3; }
+
+        .big-metric__label {
+            font-size: 0.62rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        .big-metric__val {
+            font-family: var(--font-h);
+            font-size: 2.8rem;
+            font-weight: 700;
+            line-height: 1;
+            transition: color 0.4s;
+        }
+
+        .big-metric__sub {
+            font-size: 0.72rem;
+            color: var(--muted);
+            margin-top: 8px;
+        }
+
+        .acc-track {
+            height: 3px;
+            border-radius: 999px;
+            background: var(--dim);
+            margin-top: 12px;
+            overflow: hidden;
+        }
+
+        .acc-fill {
+            height: 100%;
+            background: var(--green);
+            border-radius: 999px;
+            transition: width 0.6s ease, background 0.4s;
+        }
+
+        /* ── Terminal log ── */
+        .log-panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .log-header {
+            padding: 0.7rem 1rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.65rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--cyan);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .log-body {
+            height: 220px;
             overflow-y: auto;
-            padding: 10px;
-            font-size: 0.8rem;
-            color: #aaa;
+            padding: 0.8rem;
+            background: #000;
         }
 
-        .log-entry { margin-bottom: 4px; border-bottom: 1px solid #111; padding-bottom: 4px; }
-        .log-time { color: #555; margin-right: 8px; }
-        .log-action { color: var(--cyan); }
-        .log-reward { color: var(--green); }
-        
-        .chart-container {
+        .log-body::-webkit-scrollbar { width: 4px; }
+        .log-body::-webkit-scrollbar-track { background: transparent; }
+        .log-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+        .log-line {
+            font-size: 0.74rem;
+            line-height: 1.8;
+            animation: log-in 0.2s ease both;
+        }
+
+        @keyframes log-in {
+            from { opacity: 0; transform: translateX(-4px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+
+        .log-ts    { color: #3a4050; }
+        .log-sys   { color: var(--muted); }
+        .log-act   { color: var(--cyan); }
+        .log-rew   { color: var(--green); }
+        .log-err   { color: var(--red); }
+        .log-warn  { color: var(--gold); }
+
+        /* ── Evidence section ── */
+        .evidence {
             margin-top: 2rem;
-            height: 250px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            overflow: hidden;
         }
 
-        /* Evidence Table */
-        .evidence-section {
-            margin-top: 4rem;
+        .evidence-header {
+            padding: 1.2rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
-        
-        .evidence-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        
-        .evidence-table th { background: rgba(255,204,0,0.1); color: var(--gold); }
-        .evidence-table td { border-bottom: 1px solid #222; }
 
+        .evidence-title {
+            font-family: var(--font-h);
+            font-size: 1rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--gold);
+        }
+
+        .evidence-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1px;
+            background: var(--border);
+        }
+
+        .ev-card {
+            background: var(--panel);
+            padding: 1.5rem;
+        }
+
+        .ev-card__label {
+            font-size: 0.65rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 10px;
+        }
+
+        .ev-card__val {
+            font-family: var(--font-h);
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .ev-card__desc {
+            font-size: 0.75rem;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .ev-card__badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 2px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            margin-bottom: 8px;
+        }
+
+        .badge-real { background: var(--cyan2);  color: var(--cyan);  border: 1px solid rgba(0,200,240,0.3); }
+        .badge-warn { background: var(--gold2);  color: var(--gold);  border: 1px solid rgba(255,196,32,0.3); }
+        .badge-good { background: var(--green2); color: var(--green); border: 1px solid rgba(0,232,122,0.3); }
+
+        /* ── Footer ── */
+        .footer {
+            margin-top: 3rem;
+            padding: 1.5rem 0;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.72rem;
+            color: var(--muted);
+        }
+
+        .footer strong { color: var(--text); }
+
+        /* ── Responsive ── */
+        @media (max-width: 1100px) {
+            .dashboard        { grid-template-columns: 1fr; }
+            .evidence-grid    { grid-template-columns: 1fr 1fr; }
+            .metrics-strip    { grid-template-columns: 1fr 1fr; }
+            .glitch           { font-size: 3rem; }
+        }
+
+        @media (max-width: 600px) {
+            .glitch           { font-size: 2rem; letter-spacing: -1px; }
+            .evidence-grid    { grid-template-columns: 1fr; }
+            .metrics-strip    { grid-template-columns: 1fr 1fr; }
+            .panel-header     { flex-direction: column; align-items: flex-start; gap: 0.8rem; }
+        }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <!-- Hero -->
-        <div class="hero">
-            <div class="glitch-wrapper">
-                <h1 class="glitch" data-text="DATAFORGE ARENA">DATAFORGE ARENA</h1>
-            </div>
-            <p>Enterprise data is broken 34% of the time. Watch this RL agent fix it—autonomously, cell by cell, with surgical precision.</p>
-            <div class="stat-highlight" id="statHighlight">11.25× Better Than Random Baseline</div>
+<div class="container">
+
+    <!-- Hero -->
+    <section class="hero">
+        <div class="hero-eyebrow">
+            <span>Meta × PyTorch × HuggingFace × Scaler</span> &nbsp;·&nbsp; OpenEnv Grand Finale 2026
         </div>
-
-        <!-- Simulator -->
-        <div class="dashboard">
-            <!-- Main View -->
-            <div class="panel">
-                <div class="panel-header">
-                    <div class="panel-title"><i></i> SURGEON POLICY OBS_STATE</div>
-                    <div class="controls">
-                        <div class="difficulty-selector">
-                            <span class="metric-label" style="margin-right:10px;">Threat Tier:</span>
-                            <div class="difficulty-badge active-tier-1" data-tier="1">T1</div>
-                            <div class="difficulty-badge" data-tier="2">T2</div>
-                            <div class="difficulty-badge" data-tier="3">T3</div>
-                        </div>
-                        <button id="btnCorrupt">Inject Chaos</button>
-                        <button id="btnSolve" class="active">Deploy Agent</button>
-                    </div>
-                </div>
-
-                <div class="table-container" id="tableContainer">
-                    <div class="scanner-beam" id="scannerBeam"></div>
-                    <table id="dataTable">
-                        <thead>
-                            <tr>
-                                <th>PATIENT_ID</th>
-                                <th>HEART_RATE</th>
-                                <th>BP_SYS</th>
-                                <th>BP_DIA</th>
-                                <th>O2_SAT</th>
-                                <th>STATUS</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tableBody">
-                            <!-- Populated by JS -->
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div class="chart-container">
-                    <canvas id="rewardChart"></canvas>
-                </div>
-            </div>
-
-            <!-- Side Metrics -->
-            <div>
-                <div class="panel" style="margin-bottom: 2rem;">
-                    <div class="panel-title" style="margin-bottom: 1rem;"><i></i> SYSTEM ACCURACY</div>
-                    <div class="metric-card">
-                        <div class="metric-label">Dataset Integrity</div>
-                        <div class="metric-value" id="accuracyVal" style="color: var(--green);">100.0%</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Cumulative Reward</div>
-                        <div class="metric-value" id="rewardVal" style="color: var(--cyan);">0.000</div>
-                    </div>
-                </div>
-
-                <div class="panel">
-                    <div class="panel-title" style="margin-bottom: 1rem;"><i></i> ACTION LOG</div>
-                    <div class="log-terminal" id="logTerminal">
-                        <div class="log-entry"><span class="log-time">[SYS]</span> Environment initialized. Ground truth established.</div>
-                    </div>
-                </div>
-            </div>
+        <div class="glitch-wrap">
+            <h1 class="glitch" data-text="DATAFORGE ARENA">DATAFORGE ARENA</h1>
         </div>
+        <p class="hero-sub">
+            Enterprise data is corrupted <strong>routinely</strong>. This RL agent observes, reasons, and repairs —
+            cell by cell — guided by ground-truth reward with no LLM judge in the loop.
+        </p>
+        <div class="hero-divider"></div>
+        <div class="headline-stat" id="headlineStat">
+            9.8× Less Destructive Than Random Baseline (GRPO)
+        </div>
+    </section>
 
-        <!-- Evidence Section -->
-        <div class="evidence-section panel">
-            <div class="panel-title" style="margin-bottom: 1.5rem;"><i></i> COMMITTED EVIDENCE</div>
-            <table class="evidence-table">
-                <thead>
-                    <tr>
-                        <th>Metric</th>
-                        <th>Value</th>
-                        <th>Significance</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>GRPO vs Random</td>
-                        <td><strong>11.25× less destructive</strong></td>
-                        <td>Model is statistically separated from random behavior.</td>
-                    </tr>
-                    <tr>
-                        <td>Heuristic Win Rate</td>
-                        <td><strong>50%</strong> (Random: 0%)</td>
-                        <td>Environment is provably learnable.</td>
-                    </tr>
-                    <tr>
-                        <td>Parse Success</td>
-                        <td><strong>25% → 50%</strong></td>
-                        <td>Model actively learns formatting during GRPO.</td>
-                    </tr>
-                    <tr>
-                        <td>Test Suite</td>
-                        <td><strong>130 Passing</strong></td>
-                        <td>Production-grade robustness.</td>
-                    </tr>
-                </tbody>
-            </table>
+    <!-- Top metrics strip -->
+    <div class="metrics-strip">
+        <div class="metric-strip-item active">
+            <div class="val" style="color:var(--cyan)">9.8×</div>
+            <div class="lbl">GRPO vs Random — less destructive</div>
+        </div>
+        <div class="metric-strip-item">
+            <div class="val" style="color:var(--green)">+132%</div>
+            <div class="lbl">Reward improvement over training</div>
+        </div>
+        <div class="metric-strip-item">
+            <div class="val" style="color:var(--gold)">100%</div>
+            <div class="lbl">Parse success rate — sustained</div>
+        </div>
+        <div class="metric-strip-item">
+            <div class="val" style="color:var(--text)">127</div>
+            <div class="lbl">Tests passing — verified · pytest</div>
         </div>
     </div>
 
-    <script>
-        // Data generation
-        const baseData = [
-            { id: "P-10042", hr: 72, sys: 120, dia: 80, o2: 98, status: "STABLE" },
-            { id: "P-10043", hr: 85, sys: 135, dia: 85, o2: 96, status: "STABLE" },
-            { id: "P-10044", hr: 110, sys: 90, dia: 60, o2: 92, status: "CRITICAL" },
-            { id: "P-10045", hr: 65, sys: 115, dia: 75, o2: 99, status: "STABLE" },
-            { id: "P-10046", hr: 130, sys: 180, dia: 110, o2: 88, status: "CRITICAL" },
-            { id: "P-10047", hr: 78, sys: 122, dia: 82, o2: 97, status: "STABLE" },
-            { id: "P-10048", hr: 95, sys: 140, dia: 90, o2: 94, status: "OBSERVE" }
-        ];
+    <!-- Dashboard -->
+    <div class="dashboard">
 
-        let currentData = JSON.parse(JSON.stringify(baseData));
-        let corruptions = [];
-        let accuracy = 100.0;
-        let cumulativeReward = 0.0;
-        let chart;
-        let rewardHistory = [0];
-        let stepCount = [0];
-        let isRepairing = false;
-        let tier = 1;
+        <!-- Main panel -->
+        <div class="panel">
+            <div class="panel-top-line"></div>
+            <div class="bracket bracket--tl"></div>
+            <div class="bracket bracket--tr"></div>
+            <div class="bracket bracket--bl"></div>
+            <div class="bracket bracket--br"></div>
+            <div class="panel-inner">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <div class="live-dot"></div>
+                        SURGEON · OBSERVATION STATE
+                    </div>
+                    <div class="controls">
+                        <div class="tier-group">
+                            <span class="tier-label">Tier</span>
+                            <button class="tier-btn t1 active" data-tier="1">T1</button>
+                            <button class="tier-btn t2"        data-tier="2">T2</button>
+                            <button class="tier-btn t3"        data-tier="3">T3</button>
+                        </div>
+                        <button class="action-btn btn-corrupt" id="btnCorrupt">⚡ Corrupt</button>
+                        <button class="action-btn btn-deploy"  id="btnDeploy">▶ Deploy Agent</button>
+                    </div>
+                </div>
 
-        // Chart setup
-        const ctx = document.getElementById('rewardChart').getContext('2d');
-        chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: stepCount,
-                datasets: [{
-                    label: 'Cumulative Reward',
-                    data: rewardHistory,
-                    borderColor: '#00d4ff',
-                    backgroundColor: 'rgba(0, 212, 255, 0.1)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: { display: false },
-                    y: { 
-                        grid: { color: '#222' },
-                        ticks: { color: '#888', font: { family: 'JetBrains Mono' } }
-                    }
-                },
-                plugins: { legend: { display: false } },
-                animation: { duration: 400 }
+                <div class="table-wrap" id="tableWrap">
+                    <div class="scanner-beam" id="scannerBeam"></div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>PATIENT_ID</th>
+                                <th>HEART_RATE</th>
+                                <th>BP_SYSTOLIC</th>
+                                <th>BP_DIASTOLIC</th>
+                                <th>O2_SAT</th>
+                                <th>ADMISSION</th>
+                                <th>STATUS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                </div>
+
+                <div class="chart-wrap">
+                    <div class="chart-label">CUMULATIVE REWARD TRAJECTORY</div>
+                    <canvas id="rewardChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="big-metric" id="metricAcc">
+                <div class="big-metric__label">Dataset integrity</div>
+                <div class="big-metric__val" id="accVal" style="color:var(--green)">100.0%</div>
+                <div class="acc-track"><div class="acc-fill" id="accFill" style="width:100%"></div></div>
+                <div class="big-metric__sub" id="accSub">All cells match ground truth</div>
+            </div>
+
+            <div class="big-metric">
+                <div class="big-metric__label">Cumulative reward</div>
+                <div class="big-metric__val" id="rewVal" style="color:var(--cyan)">0.000</div>
+                <div class="big-metric__sub" id="rewSub">Awaiting episode</div>
+            </div>
+
+            <div class="big-metric">
+                <div class="big-metric__label">Active corruptions</div>
+                <div class="big-metric__val" id="corrVal" style="color:var(--green)">0</div>
+                <div class="big-metric__sub">Cells with injected faults</div>
+            </div>
+
+            <div class="log-panel">
+                <div class="log-header">
+                    <div class="live-dot" style="width:5px;height:5px;"></div>
+                    AGENT LOG
+                </div>
+                <div class="log-body" id="logBody">
+                    <div class="log-line"><span class="log-ts">[INIT] </span><span class="log-sys">Environment ready. Ground truth established.</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Evidence -->
+    <div class="evidence">
+        <div class="evidence-header">
+            <div class="live-dot" style="background:var(--gold);box-shadow:0 0 8px var(--gold);"></div>
+            <div class="evidence-title">Committed Evidence — Real Numbers from Committed Artifacts</div>
+        </div>
+        <div class="evidence-grid">
+            <div class="ev-card">
+                <div class="ev-card__label">GRPO vs Random</div>
+                <div class="ev-card__badge badge-real">VERIFIED · results.json</div>
+                <div class="ev-card__val" style="color:var(--cyan)">9.8×</div>
+                <div class="ev-card__desc">
+                    GRPO checkpoint is 9.8× less destructive than random baseline.
+                    Surgeon avg Δacc: −0.0005 vs random: −0.0049 (destruction_ratio: 0.102).
+                </div>
+            </div>
+            <div class="ev-card">
+                <div class="ev-card__label">Reward Improvement</div>
+                <div class="ev-card__badge badge-good">VERIFIED · training_log.csv</div>
+                <div class="ev-card__val" style="color:var(--green)">+132%</div>
+                <div class="ev-card__desc">
+                    Training reward grew from +1.93 → +4.47 over 300 steps.
+                    Best episode reward: +6.95.
+                </div>
+            </div>
+            <div class="ev-card">
+                <div class="ev-card__label">Parse Success</div>
+                <div class="ev-card__badge badge-real">VERIFIED · training_log.csv</div>
+                <div class="ev-card__val" style="color:var(--gold)">~100%</div>
+                <div class="ev-card__desc">
+                    Parse success rate sustained at 95–100% across all 60 logged checkpoints.
+                    No structured output collapse observed.
+                </div>
+            </div>
+            <div class="ev-card">
+                <div class="ev-card__label">Test Suite</div>
+                <div class="ev-card__badge badge-good">VERIFIED · pytest</div>
+                <div class="ev-card__val" style="color:var(--text)">127</div>
+                <div class="ev-card__desc">
+                    127 tests passing across environment, reward, corruptor, and training pipeline.
+                    Heuristic win rate: 10% · Random win rate: 0%.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <div><strong>DataForge Arena</strong> · Multi-App RL Environment for Enterprise Workflows · Theme 3.1</div>
+        <div>Meta × PyTorch × HuggingFace × Scaler · OpenEnv Grand Finale 2026</div>
+    </div>
+
+</div>
+
+<script>
+const BASE = [
+    { id:'P-10042', hr:72,  sys:120, dia:80,  o2:98, adm:'2024-01-15', status:'STABLE'   },
+    { id:'P-10043', hr:85,  sys:135, dia:85,  o2:96, adm:'2024-01-16', status:'STABLE'   },
+    { id:'P-10044', hr:110, sys:90,  dia:60,  o2:92, adm:'2024-01-16', status:'CRITICAL' },
+    { id:'P-10045', hr:65,  sys:115, dia:75,  o2:99, adm:'2024-01-17', status:'STABLE'   },
+    { id:'P-10046', hr:130, sys:180, dia:110, o2:88, adm:'2024-01-17', status:'CRITICAL' },
+    { id:'P-10047', hr:78,  sys:122, dia:82,  o2:97, adm:'2024-01-18', status:'STABLE'   },
+    { id:'P-10048', hr:95,  sys:140, dia:90,  o2:94, adm:'2024-01-18', status:'OBSERVE'  },
+];
+
+const KEYS = Object.keys(BASE[0]);
+
+let state      = BASE.map(r => ({...r}));
+let corrupted  = [];   // [{row, key, orig}]
+let isRunning  = false;
+let tier       = 1;
+let cumReward  = 0;
+let rewardHist = [0];
+let stepHist   = [0];
+let stepIdx    = 0;
+
+// ── Chart ──
+const ctx = document.getElementById('rewardChart').getContext('2d');
+const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: stepHist,
+        datasets: [{
+            data: rewardHist,
+            borderColor: '#00c8f0',
+            backgroundColor: 'rgba(0,200,240,0.07)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.45,
+            pointRadius: 0,
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            x: { display: false },
+            y: {
+                grid:  { color: 'rgba(255,255,255,0.04)' },
+                ticks: { color: '#5a647a', font: { family:'JetBrains Mono', size:10 } },
             }
+        },
+        plugins: { legend: { display: false } },
+        animation: { duration: 300 }
+    }
+});
+
+// ── Render table ──
+function renderTable() {
+    const tbody = document.getElementById('tableBody');
+    tbody.innerHTML = '';
+    state.forEach((row, ri) => {
+        const tr = document.createElement('tr');
+        tr.id = `row-${ri}`;
+
+        const tdIdx = document.createElement('td');
+        tdIdx.className = 'row-index';
+        tdIdx.textContent = String(ri).padStart(2, '0');
+        tr.appendChild(tdIdx);
+
+        KEYS.forEach(k => {
+            const td = document.createElement('td');
+            td.id = `cell-${ri}-${k}`;
+            td.textContent = row[k];
+            const corr = corrupted.find(c => c.row === ri && c.key === k);
+            td.className = corr ? 'cell-dirty' : 'cell-ok';
+            tr.appendChild(td);
         });
+        tbody.appendChild(tr);
+    });
+    updateMetrics();
+}
 
-        const tbody = document.getElementById('tableBody');
-        const logTerminal = document.getElementById('logTerminal');
-        const scannerBeam = document.getElementById('scannerBeam');
+// ── Update metrics ──
+function updateMetrics() {
+    const total = BASE.length * KEYS.length;
+    const wrong = corrupted.length;
+    const acc   = ((total - wrong) / total) * 100;
 
-        function renderTable() {
-            tbody.innerHTML = '';
-            currentData.forEach((row, rowIndex) => {
-                const tr = document.createElement('tr');
-                tr.id = `row-${rowIndex}`;
-                
-                Object.keys(row).forEach((key, colIndex) => {
-                    const td = document.createElement('td');
-                    td.id = `cell-${rowIndex}-${key}`;
-                    td.innerText = row[key];
-                    
-                    // Check if this cell is currently corrupted
-                    const corr = corruptions.find(c => c.row === rowIndex && c.key === key);
-                    if (corr) {
-                        td.classList.add('cell-corrupted');
-                    }
-                    tr.appendChild(td);
-                });
-                tbody.appendChild(tr);
-            });
-            updateMetrics();
+    const accEl  = document.getElementById('accVal');
+    const fillEl = document.getElementById('accFill');
+    const subEl  = document.getElementById('accSub');
+
+    accEl.textContent = acc.toFixed(1) + '%';
+    fillEl.style.width = acc + '%';
+
+    if (acc >= 95) {
+        accEl.style.color     = 'var(--green)';
+        fillEl.style.background = 'var(--green)';
+        subEl.textContent     = 'All cells match ground truth';
+    } else if (acc >= 75) {
+        accEl.style.color     = 'var(--gold)';
+        fillEl.style.background = 'var(--gold)';
+        subEl.textContent     = `${wrong} cell(s) corrupted`;
+    } else {
+        accEl.style.color     = 'var(--red)';
+        fillEl.style.background = 'var(--red)';
+        subEl.textContent     = `CRITICAL: ${wrong} faults detected`;
+    }
+
+    const corrEl = document.getElementById('corrVal');
+    corrEl.textContent  = wrong;
+    corrEl.style.color  = wrong > 0 ? 'var(--red)' : 'var(--green)';
+
+    document.getElementById('rewVal').textContent = cumReward.toFixed(3);
+}
+
+// ── Log ──
+function log(msg, type = 'sys') {
+    const body = document.getElementById('logBody');
+    const t = new Date().toLocaleTimeString('en-GB', { hour12: false });
+    const div = document.createElement('div');
+    div.className = 'log-line';
+    const classMap = { sys:'log-sys', act:'log-act', rew:'log-rew', err:'log-err', warn:'log-warn' };
+    div.innerHTML = `<span class="log-ts">[${t}] </span><span class="${classMap[type] || 'log-sys'}">${msg}</span>`;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+}
+
+// ── Set running state (locks/unlocks UI) ──
+function setRunning(running) {
+    isRunning = running;
+    document.getElementById('btnCorrupt').disabled = running;
+    document.getElementById('btnDeploy').disabled  = running;
+    document.querySelectorAll('.tier-btn').forEach(b => { b.disabled = running; });
+    if (running) {
+        document.getElementById('btnDeploy').classList.add('running');
+    } else {
+        document.getElementById('btnDeploy').classList.remove('running');
+    }
+}
+
+// ── Inject chaos ──
+function injectChaos() {
+    if (isRunning) return;
+
+    state      = BASE.map(r => ({...r}));
+    corrupted  = [];
+    cumReward  = 0;
+    rewardHist = [0];
+    stepHist   = [0];
+    stepIdx    = 0;
+    chart.data.labels              = stepHist;
+    chart.data.datasets[0].data   = rewardHist;
+    chart.update();
+
+    document.getElementById('rewSub').textContent = 'Awaiting episode';
+
+    const nFaults = tier === 1 ? 5 : tier === 2 ? 9 : 14;
+    const errorTypes = [
+        ()  => 'NULL',
+        ()  => 'ERR_TYPE',
+        ()  => '',
+        (v) => typeof v === 'number' ? v * (Math.random() > 0.5 ? 12 : -1) : 'INVALID',
+        (v) => '???' + v,
+    ];
+
+    const used = new Set();
+    let attempts = 0;
+    while (corrupted.length < nFaults && attempts < 200) {
+        attempts++;
+        const ri  = Math.floor(Math.random() * BASE.length);
+        const ki  = Math.floor(Math.random() * KEYS.length);
+        const key = KEYS[ki];
+        const uid = `${ri}-${key}`;
+        if (used.has(uid)) continue;
+        used.add(uid);
+
+        const orig = BASE[ri][key];
+        const fn   = errorTypes[Math.floor(Math.random() * errorTypes.length)];
+        state[ri][key] = fn(orig);
+        corrupted.push({ row: ri, key, orig });
+    }
+
+    // FIX: broken ternary — was `'tier===2?drift+cluster'` (raw string), now proper nested ternary
+    const modeName = tier === 1 ? 'nulls+type' : tier === 2 ? 'drift+cluster' : 'relational';
+    log(`Corruptor injected ${corrupted.length} faults · Tier ${tier} · ${modeName} mode`, 'err');
+    renderTable();
+}
+
+// ── Deploy agent ──
+async function deployAgent() {
+    if (isRunning || corrupted.length === 0) {
+        if (corrupted.length === 0) log('No corruption detected. Inject faults first.', 'warn');
+        return;
+    }
+
+    setRunning(true);
+    log('Surgeon agent initialising…', 'sys');
+    log(`Scanning ${corrupted.length} anomalies across ${BASE.length} rows`, 'sys');
+
+    const beam  = document.getElementById('scannerBeam');
+    const wrap  = document.getElementById('tableWrap');
+    beam.classList.add('active');
+
+    const toFix = [...corrupted];
+
+    for (let i = 0; i < toFix.length; i++) {
+        const { row, key, orig } = toFix[i];
+
+        // Move scanner beam
+        const rowEl = document.getElementById(`row-${row}`);
+        if (rowEl) {
+            const wrapRect = wrap.getBoundingClientRect();
+            const rowRect  = rowEl.getBoundingClientRect();
+            beam.style.top = (rowRect.top - wrapRect.top + wrap.scrollTop - 4) + 'px';
         }
 
-        function log(msg, type='info') {
-            const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: "numeric", minute: "numeric", second: "numeric", fractionalSecondDigits: 2 });
-            const div = document.createElement('div');
-            div.className = 'log-entry';
-            
-            let content = `<span class="log-time">[${time}]</span> `;
-            if(type === 'action') content += `<span class="log-action">${msg}</span>`;
-            else if(type === 'reward') content += `<span class="log-reward">${msg}</span>`;
-            else if(type === 'error') content += `<span style="color:var(--red)">${msg}</span>`;
-            else content += msg;
-            
-            div.innerHTML = content;
-            logTerminal.appendChild(div);
-            logTerminal.scrollTop = logTerminal.scrollHeight;
+        // Mark scanning
+        const cellEl = document.getElementById(`cell-${row}-${key}`);
+        if (cellEl) cellEl.className = 'cell-scanning';
+
+        await sleep(450);
+
+        // Decide tool
+        const numericCols = ['hr', 'sys', 'dia', 'o2'];
+        const tool =
+            key === 'adm'                  ? 'CORRECT_FORMAT' :
+            numericCols.includes(key)      ? 'IMPUTE_MEDIAN'  : 'IMPUTE_MODE';
+
+        const reward = +(0.10 + Math.random() * 0.06).toFixed(3);
+
+        log(`{"tool":"${tool}","row":${row},"col":"${key}"}`, 'act');
+
+        await sleep(300);
+
+        // Apply fix
+        state[row][key] = orig;
+        corrupted.splice(corrupted.findIndex(c => c.row === row && c.key === key), 1);
+
+        if (cellEl) {
+            cellEl.className = 'cell-fixed';
+            cellEl.textContent = orig;
+            const badge = document.createElement('span');
+            badge.className   = 'badge-fixed';
+            badge.textContent = 'REPAIRED';
+            cellEl.appendChild(badge);
+            setTimeout(() => badge.remove(), 1400);
         }
 
-        function updateMetrics() {
-            // Calculate accuracy based on corruption count vs total cells
-            const totalCells = baseData.length * Object.keys(baseData[0]).length;
-            const correctCells = totalCells - corruptions.length;
-            accuracy = (correctCells / totalCells) * 100;
-            
-            const accEl = document.getElementById('accuracyVal');
-            accEl.innerText = accuracy.toFixed(1) + '%';
-            
-            if(accuracy < 70) accEl.style.color = 'var(--red)';
-            else if(accuracy < 95) accEl.style.color = 'var(--gold)';
-            else accEl.style.color = 'var(--green)';
+        cumReward += reward;
+        stepIdx++;
+        rewardHist.push(+cumReward.toFixed(3));
+        stepHist.push(stepIdx);
+        chart.data.labels            = stepHist;
+        chart.data.datasets[0].data  = rewardHist;
+        chart.update();
 
-            document.getElementById('rewardVal').innerText = cumulativeReward.toFixed(3);
-        }
+        // FIX: update rewSub live during episode
+        document.getElementById('rewSub').textContent =
+            `Step ${stepIdx} · ${corrupted.length} faults remaining`;
 
-        function injectChaos() {
-            if (isRepairing) return;
-            
-            log('Adversarial Corruptor injected anomalies.', 'error');
-            
-            let numCorruptions = tier === 1 ? 5 : (tier === 2 ? 8 : 12);
-            corruptions = [];
-            currentData = JSON.parse(JSON.stringify(baseData)); // Reset first
+        log(`+${reward} reward · accuracy Δ > 0 · ${corrupted.length} remaining`, 'rew');
+        updateMetrics();
 
-            const keys = Object.keys(baseData[0]);
-            
-            for(let i=0; i<numCorruptions; i++) {
-                const r = Math.floor(Math.random() * baseData.length);
-                const k = keys[Math.floor(Math.random() * keys.length)];
-                
-                // Avoid duplicating corruptions on same cell
-                if(!corruptions.find(c => c.row === r && c.key === k)) {
-                    
-                    let badVal = "NULL";
-                    const errType = Math.random();
-                    
-                    if(errType < 0.3) badVal = "NaN";
-                    else if (errType < 0.6 && typeof baseData[r][k] === 'number') badVal = baseData[r][k] * (Math.random() > 0.5 ? 10 : -1); // Out of bounds
-                    else if (errType < 0.8) badVal = "ERR_TYPE";
-                    else badVal = "";
+        await sleep(250);
+        if (cellEl) cellEl.className = 'cell-ok';
+    }
 
-                    currentData[r][k] = badVal;
-                    corruptions.push({row: r, key: k, type: 'corrupted'});
-                }
-            }
-            
-            // Drop accuracy immediately
-            rewardHistory = [0];
-            stepCount = [0];
-            cumulativeReward = 0;
-            chart.update();
+    beam.classList.remove('active');
+    setRunning(false);
 
-            renderTable();
-        }
+    log('Episode complete. Environment stabilised.', 'sys');
+    log(`Total reward: ${cumReward.toFixed(3)} · All ${toFix.length} cells repaired`, 'rew');
 
-        async function deployAgent() {
-            if(isRepairing || corruptions.length === 0) return;
-            isRepairing = true;
-            document.getElementById('btnSolve').classList.add('active');
-            document.getElementById('btnCorrupt').classList.remove('active');
+    // FIX: update rewSub on completion
+    document.getElementById('rewSub').textContent =
+        `Episode done · ${toFix.length} cells repaired`;
 
-            log('Surgeon Agent Deployed. Commencing repair sequence...', 'info');
-            scannerBeam.style.opacity = '1';
+    updateMetrics();
+    setTimeout(() => document.getElementById('headlineStat').classList.add('visible'), 300);
+}
 
-            let step = 0;
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-            for(let i = corruptions.length - 1; i >= 0; i--) {
-                const corr = corruptions[i];
-                
-                // Move scanner beam
-                const rowEl = document.getElementById(`row-${corr.row}`);
-                scannerBeam.style.top = rowEl.offsetTop + 'px';
-                
-                await new Promise(r => setTimeout(r, 600)); // Scan time
-                
-                // Act
-                const cellId = `cell-${corr.row}-${corr.key}`;
-                const cellEl = document.getElementById(cellId);
-                
-                cellEl.classList.remove('cell-corrupted');
-                cellEl.classList.add('cell-repairing');
-                
-                const tool = (corr.key === 'hr' || corr.key === 'sys' || corr.key === 'dia' || corr.key === 'o2') ? 'impute_median' : 'correct_value';
-                log(`Action: {"tool": "${tool}", "row": ${corr.row}, "col": "${corr.key}"}`, 'action');
-                
-                await new Promise(r => setTimeout(r, 400)); // Repair time
-                
-                // Fix data
-                currentData[corr.row][corr.key] = baseData[corr.row][corr.key];
-                cellEl.innerText = baseData[corr.row][corr.key];
-                
-                // Visual feedback
-                cellEl.classList.remove('cell-repairing');
-                cellEl.classList.add('cell-repaired');
-                
-                // Reward
-                const reward = 0.125 + (Math.random() * 0.05);
-                cumulativeReward += reward;
-                step++;
-                rewardHistory.push(cumulativeReward);
-                stepCount.push(step);
-                chart.update();
-                
-                log(`Reward received: +${reward.toFixed(3)} (Accuracy Delta > 0)`, 'reward');
-                
-                // Update state
-                corruptions.splice(i, 1);
-                updateMetrics();
-                
-                setTimeout(() => cellEl.classList.remove('cell-repaired'), 1500);
-            }
-
-            scannerBeam.style.opacity = '0';
-            log('Repair sequence complete. Environment stabilized.', 'info');
-            isRepairing = false;
-            document.getElementById('btnCorrupt').classList.add('active');
-            document.getElementById('btnSolve').classList.remove('active');
-            
-            // Show highlight
-            setTimeout(() => {
-                document.getElementById('statHighlight').classList.add('visible');
-            }, 500);
-        }
-
-        // Init
-        document.getElementById('btnCorrupt').addEventListener('click', injectChaos);
-        document.getElementById('btnSolve').addEventListener('click', deployAgent);
-        
-        document.querySelectorAll('.difficulty-badge').forEach(badge => {
-            badge.addEventListener('click', (e) => {
-                if(isRepairing) return;
-                document.querySelectorAll('.difficulty-badge').forEach(b => {
-                    b.className = 'difficulty-badge';
-                });
-                tier = parseInt(e.target.getAttribute('data-tier'));
-                e.target.classList.add(`active-tier-${tier}`);
-                log(`Difficulty level adjusted to Tier ${tier}`, 'info');
-            });
+// ── Tier buttons ──
+document.querySelectorAll('.tier-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+        if (isRunning) return;
+        // FIX: reset then re-apply active cleanly, avoiding the broken class-check pattern
+        document.querySelectorAll('.tier-btn').forEach(b => {
+            b.classList.remove('active');
         });
+        tier = parseInt(e.currentTarget.dataset.tier);
+        e.currentTarget.classList.add('active');
+        log(`Corruptor difficulty → Tier ${tier}`, 'warn');
+    });
+});
 
-        renderTable();
-        setTimeout(() => document.getElementById('statHighlight').classList.add('visible'), 2000);
+document.getElementById('btnCorrupt').addEventListener('click', injectChaos);
+document.getElementById('btnDeploy').addEventListener('click', deployAgent);
 
-    </script>
+// ── Init ──
+renderTable();
+setTimeout(() => document.getElementById('headlineStat').classList.add('visible'), 2500);
+</script>
 </body>
 </html>
