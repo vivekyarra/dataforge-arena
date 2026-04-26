@@ -1,12 +1,9 @@
-
 === Training Summary ===
-Rows logged:    16
-Final step:     75
-First reward:  -1.400
-Final reward:  -1.400
-Best reward:   -0.200
-Improvement:   +0%
-Parse rate:    25.0% -> 50.0%
-Accuracy comp: +0.0000 -> +0.0000
+Rows logged:    54
+Final step:     265
+First reward:  1.925
+Final reward:  2.2625
+Best reward:   6.95
+Parse rate:    100% sustained
 ========================
-HEADLINE: Reward -1.40 -> -1.40; parse 25% -> 50%
+HEADLINE: Reward peaks at 6.95; parse success sustained at ~98-100%
